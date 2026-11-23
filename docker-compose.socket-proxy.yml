@@ -1,0 +1,56 @@
+# Override: route Docker API calls through Tecnativa's docker-socket-proxy.
+#
+# This is the recommended deployment. The proxy is only reachable on an
+# internal Docker network, publishes no port, and allows exactly:
+#   - GET /containers/json     (list)
+#   - POST /containers/{id}/start|stop|restart
+#   - PING and VERSION         (client handshake, allowed by default)
+# Everything else (exec, images, networks, volumes, secrets, builds) is denied.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.socket-proxy.yml up -d
+
+services:
+  docktimer:
+    environment:
+      DOCKER_HOST: tcp://docker-socket-proxy:2375
+    networks:
+      - docktimer-net
+    depends_on:
+      docker-socket-proxy:
+        condition: service_started
+
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:3.4
+    container_name: docker-socket-proxy
+    restart: unless-stopped
+    environment:
+      # API sections, least privilege.
+      CONTAINERS: 1
+      POST: 1
+      ALLOW_START: 1
+      ALLOW_STOP: 1
+      ALLOW_RESTARTS: 1
+      # Explicitly keep everything else at the image default (denied).
+      EXEC: 0
+      IMAGES: 0
+      NETWORKS: 0
+      VOLUMES: 0
+      SECRETS: 0
+      BUILD: 0
+      COMMIT: 0
+      SYSTEM: 0
+      LOG_LEVEL: warning
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - docktimer-net
+    # No ports: the proxy must never be reachable from outside this network.
+    mem_limit: 64m
+    cpus: 0.10
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  docktimer-net:
+    internal: true

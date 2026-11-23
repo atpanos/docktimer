@@ -1,0 +1,25 @@
+# secrets
+.env
+
+# runtime data
+/data/
+*.db
+*.db-wal
+*.db-shm
+
+# build artifacts
+/docktimer
+/dist/
+/tmp/
+
+# tooling
+.tools/
+node_modules/
+
+# editor / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
+
+/docs/

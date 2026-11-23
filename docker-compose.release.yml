@@ -1,0 +1,15 @@
+# Docktimer — use the prebuilt image from GitHub Container Registry instead of
+# building locally. Combine with one of the socket overrides:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.socket-proxy.yml \
+#     -f docker-compose.release.yml pull
+#   docker compose -f docker-compose.yml -f docker-compose.socket-proxy.yml \
+#     -f docker-compose.release.yml up -d
+#
+# The default is the pinned 0.0.1 image. Set DOCKTIMER_TAG=latest for a rolling
+# deployment, or DOCKTIMER_TAG=beta to test the beta channel.
+
+services:
+  docktimer:
+    image: ghcr.io/atpanos/docktimer:${DOCKTIMER_TAG:-0.0.1}
+    build: !reset null

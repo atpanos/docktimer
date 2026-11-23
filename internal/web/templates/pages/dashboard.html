@@ -1,0 +1,107 @@
+{{define "content"}}
+<div class="mb-6 flex flex-wrap items-end justify-between gap-3">
+  <div>
+    <h1 class="page-title">Dashboard</h1>
+    <p class="page-sub">Overview of containers, schedules and incidents.</p>
+  </div>
+  <a class="btn btn-ghost" href="/containers">Open containers</a>
+</div>
+
+{{template "error_box" .Data.DockerErr}}
+
+<div class="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+  <div class="stat">
+    <div class="stat-label">Running</div>
+    <div class="stat-value text-emerald-400">{{.Data.Running}}</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Stopped / exited</div>
+    <div class="stat-value text-slate-300">{{.Data.Stopped}}</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Active rules</div>
+    <div class="stat-value text-sky-400">{{.Data.RulesActive}}</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Total rules</div>
+    <div class="stat-value text-slate-300">{{.Data.RulesTotal}}</div>
+  </div>
+</div>
+
+{{if .Data.Failures}}
+<div class="mb-6 rounded-xl border border-rose-500/40 bg-rose-500/5 p-5">
+  <div class="mb-3 flex items-center justify-between">
+    <h2 class="text-sm font-semibold uppercase tracking-wider text-rose-300">Recent errors</h2>
+    <a class="link text-xs" href="/logs?status=FAILED">View all</a>
+  </div>
+  <ul class="space-y-2 text-sm">
+    {{range .Data.Failures}}
+    <li class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      <span class="text-slate-500">{{fmtTime .CreatedAt $.TZ}}</span>
+      <span class="font-medium text-slate-200">{{.ContainerName}}</span>
+      <span class="badge badge-muted">{{actionLabel .Action}}</span>
+      <span class="text-rose-300">{{.Message}}</span>
+    </li>
+    {{end}}
+  </ul>
+</div>
+{{end}}
+
+<div class="grid gap-6 lg:grid-cols-2">
+  <section class="card p-0">
+    <div class="card-hd">
+      <h2 class="card-title">Next scheduled actions</h2>
+      <a class="link text-xs" href="/rules">Rules</a>
+    </div>
+    {{if .Data.Next}}
+    <div class="overflow-x-auto">
+      <table class="table">
+        <thead><tr><th>Time</th><th>Container</th><th>Action</th></tr></thead>
+        <tbody>
+          {{range .Data.Next}}
+          <tr>
+            <td class="whitespace-nowrap text-slate-300">
+              {{fmtTime .At .Rule.Timezone}}
+              <span class="block text-[11px] text-slate-600">{{.Rule.Timezone}}</span>
+            </td>
+            <td class="font-medium text-slate-200">{{.Rule.ContainerName}}</td>
+            <td><span class="badge badge-muted">{{actionLabel .Rule.Action}}</span></td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{else}}
+    <p class="px-5 py-10 text-center text-sm text-slate-500">No active schedules. <a class="link" href="/rules/new">Create your first rule</a></p>
+    {{end}}
+  </section>
+
+  <section class="card p-0">
+    <div class="card-hd">
+      <h2 class="card-title">Recent actions</h2>
+      <a class="link text-xs" href="/logs">Logs</a>
+    </div>
+    {{if .Data.Recent}}
+    <div class="overflow-x-auto">
+      <table class="table">
+        <thead><tr><th>Time</th><th>Container</th><th>Result</th></tr></thead>
+        <tbody>
+          {{range .Data.Recent}}
+          <tr>
+            <td class="whitespace-nowrap text-slate-400">{{fmtTime .CreatedAt $.TZ}}</td>
+            <td class="font-medium text-slate-200">{{.ContainerName}}</td>
+            <td>
+              <span class="badge {{statusClass .Status}}">{{.Status}}</span>
+              <span class="ml-1 text-xs text-slate-500">{{actionLabel .Action}}</span>
+            </td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{else}}
+    <p class="px-5 py-10 text-center text-sm text-slate-500">No actions executed yet.</p>
+    {{end}}
+  </section>
+</div>
+{{end}}
