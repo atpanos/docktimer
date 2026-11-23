@@ -371,6 +371,9 @@ Docktimer uses two channels:
 | push to `main` | `main`, `sha-…` | no |
 | tag `v0.0.1` (stable) | `0.0.1`, `0.0`, `latest`, `sha-…` | yes |
 
+Beta and prerelease images are built for `linux/amd64` only. Pushes to `main`
+and stable `v*` tags are built for `linux/amd64` and `linux/arm64`.
+
 Pin a specific image with `DOCKTIMER_TAG`:
 
 ```bash
