@@ -168,15 +168,24 @@ func (s *Scheduler) addLocked(r database.Rule) error {
 		return err
 	}
 
-	c, ok := s.crons[r.Timezone]
-	if !ok {
+	c, exists := s.crons[r.Timezone]
+	if !exists {
 		c = cron.New(cron.WithLocation(loc))
 		s.crons[r.Timezone] = c
 	}
 	rule := r
 	eid, err := c.AddFunc(r.CronExpression, func() { s.job(rule) })
 	if err != nil {
+		if !exists {
+			delete(s.crons, r.Timezone)
+		}
 		return err
+	}
+	// A cron instance created after Start must be started as well. Otherwise a
+	// rule added at runtime would be registered but never executed, even though
+	// Next() reports a future run.
+	if !exists && s.started {
+		c.Start()
 	}
 	s.entries[r.ID] = eid
 	s.ruleTZ[r.ID] = r.Timezone
@@ -186,16 +195,30 @@ func (s *Scheduler) addLocked(r database.Rule) error {
 
 func (s *Scheduler) removeLocked(id int64) {
 	eid, ok := s.entries[id]
+	tz := s.ruleTZ[id]
 	if ok {
-		if tz, exists := s.ruleTZ[id]; exists {
-			if c, found := s.crons[tz]; found {
-				c.Remove(eid)
-			}
+		if c, found := s.crons[tz]; found {
+			c.Remove(eid)
 		}
 	}
 	delete(s.entries, id)
 	delete(s.ruleTZ, id)
 	delete(s.next, id)
+
+	if tz == "" {
+		return
+	}
+	// Stop and drop a cron instance once its last rule is gone. Otherwise every
+	// time zone that was ever used would keep a sleeping scheduler goroutine.
+	for _, otherTZ := range s.ruleTZ {
+		if otherTZ == tz {
+			return
+		}
+	}
+	if c, found := s.crons[tz]; found {
+		delete(s.crons, tz)
+		c.Stop()
+	}
 }
 
 func (s *Scheduler) job(r database.Rule) {

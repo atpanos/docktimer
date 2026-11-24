@@ -151,6 +151,90 @@ func TestStartLoadsRules(t *testing.T) {
 	s.Stop()
 }
 
+// waitForActiveEntry waits until the cron entry of a rule has a next run. An
+// entry in a cron instance that was never started keeps a zero Next forever, so
+// this also proves that the instance is actually running.
+func waitForActiveEntry(t *testing.T, s *Scheduler, id int64) time.Time {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		s.mu.RLock()
+		c := s.crons[s.ruleTZ[id]]
+		eid, ok := s.entries[id]
+		s.mu.RUnlock()
+		if ok && c != nil {
+			if next := c.Entry(eid).Next; !next.IsZero() {
+				return next
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("cron entry for rule %d never became active", id)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestUpsertAfterStartStartsNewTimezoneCron(t *testing.T) {
+	sink := &fakeSink{}
+	s := newScheduler(&fakeRunner{}, &fakeSource{}, sink)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := s.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Stop()
+
+	r := testRule()
+	s.Upsert(r)
+
+	next := waitForActiveEntry(t, s, r.ID)
+	if next.Before(time.Now().Add(-time.Minute)) {
+		t.Errorf("next run in the past: %v", next)
+	}
+}
+
+func TestUpsertAfterStartStartsCronForAdditionalTimezone(t *testing.T) {
+	existing := testRule()
+	s := newScheduler(&fakeRunner{}, &fakeSource{rules: []database.Rule{existing}}, &fakeSink{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := s.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Stop()
+
+	added := testRule()
+	added.ID = 8
+	added.Timezone = "Asia/Tokyo"
+	s.Upsert(added)
+
+	waitForActiveEntry(t, s, existing.ID)
+	waitForActiveEntry(t, s, added.ID)
+}
+
+func TestRemoveLastRuleDropsTimezoneCron(t *testing.T) {
+	s := newScheduler(&fakeRunner{}, &fakeSource{}, &fakeSink{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := s.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Stop()
+
+	r := testRule()
+	s.Upsert(r)
+	waitForActiveEntry(t, s, r.ID)
+
+	s.Remove(r.ID)
+
+	s.mu.RLock()
+	_, exists := s.crons[r.Timezone]
+	s.mu.RUnlock()
+	if exists {
+		t.Errorf("cron instance for %q kept although no rule uses it", r.Timezone)
+	}
+}
+
 func TestJobIsSkippedWhilePreviousRunIsActive(t *testing.T) {
 	// Simulate a still-running job by occupying the running marker.
 	sink := &fakeSink{}
