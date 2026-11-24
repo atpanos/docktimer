@@ -329,6 +329,22 @@ Covered:
 There are **no** Docker-dependent tests in the default run; the Docker layer is
 mocked through an interface.
 
+### CI security scanning
+
+[Trivy](https://trivy.dev) runs in `.github/workflows/security.yml` on every push
+to `main`/`beta`, on pull requests and weekly (new CVEs appear without code
+changes):
+
+- **Repository scan** – Go module CVEs, `Dockerfile`/Compose misconfigurations, secrets
+- **Image scan** – Alpine base packages and the compiled binary
+
+Results are uploaded as SARIF and appear under **Security → Code scanning**. The
+workflow is report-only (`exit-code: 0`) so findings do not block merges. Accepted
+findings belong in `.trivyignore`, each with a short reason.
+
+Dependabot (`.github/dependabot.yml`) opens grouped weekly PRs for Go modules,
+GitHub Actions and Docker images: Trivy finds the issues, Dependabot fixes them.
+
 ---
 
 ## Known limitations

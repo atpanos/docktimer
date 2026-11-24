@@ -1,0 +1,6 @@
+# Accepted Trivy findings (one CVE / misconfig ID per line).
+# Always add a short reason so the exception stays understandable.
+#
+# Example:
+# CVE-2024-12345    # not reachable from our code paths
+# DS002             # image runs as root only in the test image
