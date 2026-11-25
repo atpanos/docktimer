@@ -43,16 +43,42 @@
     }
   });
 
-  // Pause the container auto-refresh while a modal-ish interaction is open.
+  // Track in-flight container actions so the 10-second table poll cannot
+  // replace the table (and the action's response target) before it finishes.
+  var pendingActions = 0;
+
+  function isActionButton(elt) {
+    return elt && elt.matches && elt.matches('button[hx-post*="/containers/"]');
+  }
+
   document.addEventListener("htmx:beforeRequest", function (event) {
     var elt = event.detail && event.detail.elt;
-    if (elt && elt.matches && elt.matches('button[hx-post*="/containers/"]')) {
+    if (isActionButton(elt)) {
+      pendingActions += 1;
       elt.setAttribute("aria-busy", "true");
+      elt.dataset.dtPending = "1";
+      return;
+    }
+    // Do not start a poll while a container action is still running.
+    if (elt && elt.id === "container-table" && pendingActions > 0) {
+      event.preventDefault();
+    }
+  });
+
+  document.addEventListener("htmx:beforeSwap", function (event) {
+    var elt = event.detail && event.detail.elt;
+    // A poll that was already in flight must not detach the table while an
+    // action is pending, otherwise its response and toast would be lost.
+    if (elt && elt.id === "container-table" && pendingActions > 0) {
+      event.detail.shouldSwap = false;
     }
   });
 
   document.addEventListener("htmx:afterRequest", function (event) {
     var elt = event.detail && event.detail.elt;
-    if (elt && elt.removeAttribute) elt.removeAttribute("aria-busy");
+    if (!elt || !elt.dataset || elt.dataset.dtPending !== "1") return;
+    delete elt.dataset.dtPending;
+    elt.removeAttribute("aria-busy");
+    pendingActions = Math.max(0, pendingActions - 1);
   });
 })();
