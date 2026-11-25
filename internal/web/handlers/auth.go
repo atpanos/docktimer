@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/atpanos/docktimer/internal/auth"
@@ -22,7 +23,7 @@ type loginData struct {
 func (h *Handler) LoginPage(c *gin.Context) {
 	needsSetup, err := h.deps.Auth.NeedsSetup(c.Request.Context())
 	if err != nil {
-		h.errorPage(c, http.StatusInternalServerError, "Datenbankfehler")
+		h.errorPage(c, http.StatusInternalServerError, "Database error.")
 		return
 	}
 	if needsSetup {
@@ -91,7 +92,7 @@ func (h *Handler) LogoutPage(c *gin.Context) {
 func (h *Handler) SetupPage(c *gin.Context) {
 	needsSetup, err := h.deps.Auth.NeedsSetup(c.Request.Context())
 	if err != nil {
-		h.errorPage(c, http.StatusInternalServerError, "Datenbankfehler")
+		h.errorPage(c, http.StatusInternalServerError, "Database error.")
 		return
 	}
 	if !needsSetup {
@@ -167,7 +168,8 @@ func (h *Handler) clearSessionCookie(c *gin.Context) {
 
 // safeNext only allows local absolute paths to prevent open redirects.
 func safeNext(next string) string {
-	if next == "" || next[0] != '/' || (len(next) > 1 && next[1] == '/') {
+	if next == "" || next[0] != '/' || strings.ContainsAny(next, "\\\t\r\n") ||
+		(len(next) > 1 && next[1] == '/') {
 		return ""
 	}
 	return next

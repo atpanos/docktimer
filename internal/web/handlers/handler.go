@@ -65,6 +65,7 @@ func (h *Handler) page(c *gin.Context, status int, name, title, nav string, data
 	}
 	c.Status(status)
 	c.Header("Content-Type", "text/html; charset=utf-8")
+	c.Header("Cache-Control", "no-store")
 	if err := h.deps.Renderer.Page(c.Writer, name, pd); err != nil {
 		h.deps.Log.Error("render page failed", "page", name, "error", err)
 		if !c.Writer.Written() {
@@ -77,6 +78,7 @@ func (h *Handler) page(c *gin.Context, status int, name, title, nav string, data
 func (h *Handler) fragment(c *gin.Context, status int, name string, data any) {
 	c.Status(status)
 	c.Header("Content-Type", "text/html; charset=utf-8")
+	c.Header("Cache-Control", "no-store")
 	if err := h.deps.Renderer.Fragment(c.Writer, name, data); err != nil {
 		h.deps.Log.Error("render fragment failed", "fragment", name, "error", err)
 		c.String(http.StatusInternalServerError, "Template error")

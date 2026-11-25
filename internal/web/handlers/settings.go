@@ -106,8 +106,13 @@ func (h *Handler) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	// Invalidate all other sessions of this user.
-	_ = h.deps.Store.DeleteOtherSessions(c.Request.Context(), user.ID, middleware.SessionID(c))
+	// Invalidate all other sessions of this user. If that fails, still keep the
+	// new password but do not claim a clean success.
+	if err := h.deps.Store.DeleteOtherSessions(c.Request.Context(), user.ID, middleware.SessionID(c)); err != nil {
+		h.deps.Log.Error("delete other sessions failed", "user_id", user.ID, "error", err)
+		redirectWithFlash(c, "/settings", "password_changed_session_error")
+		return
+	}
 	redirectWithFlash(c, "/settings", "password_changed")
 }
 

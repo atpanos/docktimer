@@ -226,6 +226,8 @@ func FlashText(code string) string {
 		return "Rule status changed."
 	case "password_changed":
 		return "Password changed."
+	case "password_changed_session_error":
+		return "Password changed, but other sessions could not be signed out."
 	case "user_created":
 		return "User created."
 	case "user_deleted":
