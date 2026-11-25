@@ -273,6 +273,20 @@ func TestSetupLoginRuleToggleAndLog(t *testing.T) {
 		t.Fatalf("rules page = %d", status)
 	}
 
+	// Saving with the unchanged container reference uses the unchanged-
+	// container path, so a locked or missing container does not block edits.
+	status, _, loc = post(t, c, base+"/rules/1", url.Values{
+		"csrf_token":      {adminToken},
+		"container_id":    {testContainerID},
+		"action":          {"STOP"},
+		"cron_expression": {"30 9 * * 1-5"},
+		"timezone":        {"Europe/Berlin"},
+		"enabled":         {"1"},
+	}, "", false)
+	if status != http.StatusSeeOther || !strings.Contains(loc, "rule_updated") {
+		t.Fatalf("POST /rules/1 = %d loc=%q", status, loc)
+	}
+
 	// Form pages render and inline validation works.
 	status, body = get(t, c, base+"/rules/new")
 	if status != http.StatusOK || !strings.Contains(body, "Cron expression") {
