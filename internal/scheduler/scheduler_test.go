@@ -71,7 +71,7 @@ func TestJobRecordsSuccess(t *testing.T) {
 	sink := &fakeSink{}
 	s := newScheduler(runner, &fakeSource{}, sink)
 
-	s.job(testRule())
+	s.job(testRule(), 0)
 
 	if runner.calls != 1 || runner.last != database.ActionStop {
 		t.Fatalf("runner calls = %d action = %s", runner.calls, runner.last)
@@ -90,7 +90,7 @@ func TestJobRecordsFailure(t *testing.T) {
 	sink := &fakeSink{}
 	s := newScheduler(runner, &fakeSource{}, sink)
 
-	s.job(testRule())
+	s.job(testRule(), 0)
 
 	entry, _ := sink.last()
 	if entry.Status != database.StatusFailed || entry.Message != "daemon down" {
@@ -246,7 +246,7 @@ func TestJobIsSkippedWhilePreviousRunIsActive(t *testing.T) {
 	s.running[rule.ID] = struct{}{}
 	s.mu.Unlock()
 
-	s.job(rule)
+	s.job(rule, 0)
 
 	if runner.calls != 0 {
 		t.Error("job ran although a previous run was active")

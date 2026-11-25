@@ -42,6 +42,8 @@ type Scheduler struct {
 	crons   map[string]*cron.Cron
 	entries map[int64]cron.EntryID
 	ruleTZ  map[int64]string
+	gen     map[int64]uint64
+	seq     uint64
 	next    map[int64]time.Time
 	running map[int64]struct{}
 
@@ -65,6 +67,7 @@ func New(runner Runner, source RuleSource, logs LogSink, log *slog.Logger) *Sche
 		crons:   make(map[string]*cron.Cron),
 		entries: make(map[int64]cron.EntryID),
 		ruleTZ:  make(map[int64]string),
+		gen:     make(map[int64]uint64),
 		next:    make(map[int64]time.Time),
 		running: make(map[int64]struct{}),
 		rootCtx: ctx,
@@ -113,10 +116,17 @@ func (s *Scheduler) Stop() {
 	s.started = false
 	s.mu.Unlock()
 
+	// Stop every instance before waiting for any of them: cron's Stop context
+	// only completes after that instance's running jobs finish, so waiting in
+	// the loop would let later timezones dispatch new actions during shutdown.
+	waiters := make([]context.Context, 0, len(crons))
+	for _, c := range crons {
+		waiters = append(waiters, c.Stop())
+	}
 	stopped := make(chan struct{})
 	go func() {
-		for _, c := range crons {
-			<-c.Stop().Done()
+		for _, ctx := range waiters {
+			<-ctx.Done()
 		}
 		s.wg.Wait()
 		close(stopped)
@@ -174,7 +184,9 @@ func (s *Scheduler) addLocked(r database.Rule) error {
 		s.crons[r.Timezone] = c
 	}
 	rule := r
-	eid, err := c.AddFunc(r.CronExpression, func() { s.job(rule) })
+	s.seq++
+	gen := s.seq
+	eid, err := c.AddFunc(r.CronExpression, func() { s.job(rule, gen) })
 	if err != nil {
 		if !exists {
 			delete(s.crons, r.Timezone)
@@ -189,6 +201,7 @@ func (s *Scheduler) addLocked(r database.Rule) error {
 	}
 	s.entries[r.ID] = eid
 	s.ruleTZ[r.ID] = r.Timezone
+	s.gen[r.ID] = gen
 	s.next[r.ID] = next
 	return nil
 }
@@ -203,6 +216,7 @@ func (s *Scheduler) removeLocked(id int64) {
 	}
 	delete(s.entries, id)
 	delete(s.ruleTZ, id)
+	delete(s.gen, id)
 	delete(s.next, id)
 
 	if tz == "" {
@@ -221,7 +235,7 @@ func (s *Scheduler) removeLocked(id int64) {
 	}
 }
 
-func (s *Scheduler) job(r database.Rule) {
+func (s *Scheduler) job(r database.Rule, gen uint64) {
 	s.mu.Lock()
 	if _, busy := s.running[r.ID]; busy {
 		s.mu.Unlock()
@@ -246,8 +260,11 @@ func (s *Scheduler) job(r database.Rule) {
 		}
 		s.mu.Lock()
 		delete(s.running, r.ID)
-		if next, err := rules.NextRun(r.CronExpression, r.Timezone, time.Now()); err == nil {
-			if _, exists := s.entries[r.ID]; exists {
+		// Only refresh the next run while this exact registration is current.
+		// A rule that was updated or replaced while the job ran must keep the
+		// schedule computed for its newer cron expression.
+		if gen != 0 && s.gen[r.ID] == gen {
+			if next, err := rules.NextRun(r.CronExpression, r.Timezone, time.Now()); err == nil {
 				s.next[r.ID] = next
 			}
 		}
@@ -275,7 +292,16 @@ func (s *Scheduler) job(r database.Rule) {
 		entry.Status = database.StatusFailed
 		entry.Message = err.Error()
 	}
-	if _, recErr := s.logs.Record(ctx, entry); recErr != nil {
-		s.log.Error("cannot record scheduled run", "rule_id", r.ID, "error", recErr)
+	// Record with a fresh deadline: the action context may already be expired
+	// after a timeout or shutdown, which would drop the outcome from history.
+	recordCtx, cancelRecord := context.WithTimeout(context.WithoutCancel(s.rootCtx), 5*time.Second)
+	defer cancelRecord()
+	if _, recErr := s.logs.Record(recordCtx, entry); recErr != nil {
+		// The rule may have been deleted while the job was running. Keep the
+		// execution history by dropping the dangling rule reference.
+		entry.RuleID = nil
+		if _, retryErr := s.logs.Record(recordCtx, entry); retryErr != nil {
+			s.log.Error("cannot record scheduled run", "rule_id", r.ID, "error", retryErr)
+		}
 	}
 }
