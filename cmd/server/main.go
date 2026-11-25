@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -71,10 +72,10 @@ func run() error {
 	logSvc := logging.NewService(store, cfg.LogRetention, cfg.PerContainerLogCap, logger)
 
 	sched := scheduler.New(dockerSvc, store, logSvc, logger)
-	if err := sched.Start(ctx); err != nil {
-		logger.Error("scheduler did not start", "error", err)
-	}
 	defer sched.Stop()
+	if err := sched.Start(ctx); err != nil {
+		return fmt.Errorf("start scheduler: %w", err)
+	}
 
 	renderer, err := view.New(templates.FS, cfg.DevMode)
 	if err != nil {
