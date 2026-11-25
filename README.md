@@ -149,18 +149,27 @@ There is **no code** for exec, images, networks, volumes, builds or secrets.
 
 ### Recommendation: docker-socket-proxy
 
-`docker-compose.socket-proxy.yml` starts Tecnativa's proxy:
+`docker-compose.socket-proxy.yml` starts
+[wollomatic/socket-proxy](https://github.com/wollomatic/socket-proxy) with a
+default-deny allowlist:
 
+- `GET /containers/json` (list)
+- `GET /version` and `GET|HEAD /_ping` (client handshake)
+- `POST /containers/{id}/start|stop|restart`
+- everything else — including create, delete, exec, images, networks, volumes
+  and secrets — is denied
 - only on the internal `docktimer-net` network, **no published port**
-- `CONTAINERS=1`, `POST=1`, `ALLOW_START/STOP/RESTARTS=1`
-- every other API section stays disabled
-- socket mounted read-only
+- only connections from the `docktimer` container are accepted
+- socket mounted read-only; the unprivileged proxy receives the socket's group
+  via `DOCKER_GID` (default `999` — check with `stat -c '%g' /var/run/docker.sock`)
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.socket-proxy.yml up -d
 ```
 
-The proxy is therefore unreachable from the LAN; only Docktimer talks to it.
+Docktimer stays on the default Compose network as well, so the published host
+port keeps working. The proxy itself is unreachable from the LAN; only
+Docktimer talks to it.
 
 ### Direct socket (alternative)
 
@@ -216,7 +225,7 @@ The default Compose setup uses a named volume and does not need this step.
 | `CONTAINER_DENYLIST` | `docktimer,docker-socket-proxy` | – | Never control these |
 | `LOG_LEVEL` | `info` | – | `debug`/`info`/`warn`/`error` |
 | `DEV_MODE` | `0` | – | `1` = development (text logs, template reload, weak secret allowed) |
-| `DOCKER_GID` | `999` | – | Docker socket group (Compose override only) |
+| `DOCKER_GID` | `999` | – | Docker socket group (both socket overrides) |
 
 ---
 
