@@ -15,6 +15,7 @@ services:
     environment:
       DOCKER_HOST: tcp://docker-socket-proxy:2375
     networks:
+      - default
       - docktimer-net
     depends_on:
       docker-socket-proxy:
