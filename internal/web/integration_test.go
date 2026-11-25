@@ -273,8 +273,11 @@ func TestSetupLoginRuleToggleAndLog(t *testing.T) {
 		t.Fatalf("rules page = %d", status)
 	}
 
-	// Saving with the unchanged container reference uses the unchanged-
-	// container path, so a locked or missing container does not block edits.
+	// Saving with the unchanged container reference must work even when the
+	// container is no longer visible to Docker. Remove it for this request so
+	// the test really exercises the unchanged-container bypass.
+	containers := h.api.containers
+	h.api.containers = nil
 	status, _, loc = post(t, c, base+"/rules/1", url.Values{
 		"csrf_token":      {adminToken},
 		"container_id":    {testContainerID},
@@ -283,8 +286,18 @@ func TestSetupLoginRuleToggleAndLog(t *testing.T) {
 		"timezone":        {"Europe/Berlin"},
 		"enabled":         {"1"},
 	}, "", false)
+	h.api.containers = containers
 	if status != http.StatusSeeOther || !strings.Contains(loc, "rule_updated") {
 		t.Fatalf("POST /rules/1 = %d loc=%q", status, loc)
+	}
+	updatedRule, err := h.store.RuleByID(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("load updated rule: %v", err)
+	}
+	if updatedRule.CronExpression != "30 9 * * 1-5" ||
+		updatedRule.ContainerID != testContainerID ||
+		updatedRule.ContainerName != "/web" {
+		t.Fatalf("unexpected rule after update: %+v", updatedRule)
 	}
 
 	// Form pages render and inline validation works.
