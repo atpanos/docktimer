@@ -22,9 +22,12 @@ services:
     env_file:
       - .env
     environment:
+      # Keep the in-container port in sync with the published port and the
+      # healthcheck, even when APP_PORT comes from the shell instead of .env.
+      APP_PORT: "${APP_PORT:-8080}"
       DATABASE_PATH: /data/docktimer.db
     ports:
-      - "${APP_PORT:-8080}:8080"
+      - "${APP_PORT:-8080}:${APP_PORT:-8080}"
     volumes:
       - docktimer-data:/data
     mem_limit: 128m
@@ -32,7 +35,7 @@ services:
     security_opt:
       - no-new-privileges:true
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      test: ["CMD-SHELL", "wget -qO- \"http://127.0.0.1:${APP_PORT:-8080}/healthz\" >/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
       start_period: 10s

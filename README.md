@@ -208,7 +208,7 @@ The default Compose setup uses a named volume and does not need this step.
 
 | Variable | Default | Required | Description |
 |----------|---------|:--------:|-------------|
-| `APP_PORT` | `8080` | – | HTTP port |
+| `APP_PORT` | `8080` | – | HTTP port (host and container) |
 | `DATABASE_PATH` | `/data/docktimer.db` | – | SQLite file; directory is created |
 | `SESSION_SECRET` | – | **yes** | ≥ 32 characters, signs CSRF tokens. `change-me` is rejected in production |
 | `DEFAULT_TIMEZONE` | `Europe/Berlin` | – | IANA time zone for display and new rules |
