@@ -137,22 +137,22 @@ func (s *Service) Find(ctx context.Context, id string) (Container, error) {
 
 // Start starts a container.
 func (s *Service) Start(ctx context.Context, id string) error {
-	return s.execute(ctx, id, "start", func(ctx context.Context) error {
-		return s.api.Start(ctx, id)
+	return s.execute(ctx, id, "start", func(ctx context.Context, cid string) error {
+		return s.api.Start(ctx, cid)
 	})
 }
 
 // Stop stops a container using the configured graceful timeout.
 func (s *Service) Stop(ctx context.Context, id string) error {
-	return s.execute(ctx, id, "stop", func(ctx context.Context) error {
-		return s.api.Stop(ctx, id, s.stopAfter)
+	return s.execute(ctx, id, "stop", func(ctx context.Context, cid string) error {
+		return s.api.Stop(ctx, cid, s.stopAfter)
 	})
 }
 
 // Restart restarts a container using the configured graceful timeout.
 func (s *Service) Restart(ctx context.Context, id string) error {
-	return s.execute(ctx, id, "restart", func(ctx context.Context) error {
-		return s.api.Restart(ctx, id, s.stopAfter)
+	return s.execute(ctx, id, "restart", func(ctx context.Context, cid string) error {
+		return s.api.Restart(ctx, cid, s.stopAfter)
 	})
 }
 
@@ -170,7 +170,7 @@ func (s *Service) Execute(ctx context.Context, action database.Action, id string
 	}
 }
 
-func (s *Service) execute(ctx context.Context, id, action string, fn func(context.Context) error) error {
+func (s *Service) execute(ctx context.Context, id, action string, fn func(context.Context, string) error) error {
 	if strings.TrimSpace(id) == "" {
 		return ErrNotFound
 	}
@@ -192,14 +192,17 @@ func (s *Service) execute(ctx context.Context, id, action string, fn func(contex
 	defer cancel()
 
 	start := time.Now()
-	err = fn(ctx)
+	// Act on the full ID of the container that passed the scope check. Docker
+	// resolves a reference by name before ID prefix, so forwarding the caller's
+	// reference could hit a different (denied) container with a colliding name.
+	err = fn(ctx, ct.ID)
 	if err == nil {
-		s.log.Info("container action succeeded", "container_id", id, "action", action,
+		s.log.Info("container action succeeded", "container_id", ct.ID, "action", action,
 			"duration_ms", time.Since(start).Milliseconds())
 		return nil
 	}
 	mapped := mapError(err)
-	s.log.Warn("container action failed", "container_id", id, "action", action,
+	s.log.Warn("container action failed", "container_id", ct.ID, "action", action,
 		"error", mapped, "duration_ms", time.Since(start).Milliseconds())
 	return mapped
 }

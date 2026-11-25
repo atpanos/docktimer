@@ -154,6 +154,24 @@ func TestErrorMapping(t *testing.T) {
 	}
 }
 
+func TestActionUsesAuthorizedContainerID(t *testing.T) {
+	const allowedID = "abc123456789"
+	api := &fakeAPI{containers: []Container{
+		// A denied container whose *name* collides with the allowed ID prefix.
+		// Docker resolves names before ID prefixes, so forwarding the original
+		// reference would act on this container instead of the checked one.
+		{ID: "ffff0000ffff", Name: "/abc", State: "running"},
+		{ID: allowedID, Name: "/web", State: "running"},
+	}}
+	svc := NewService(api, 30*time.Second, nil, []string{"abc"}, "", testLogger())
+	if err := svc.Start(context.Background(), "abc"); err != nil {
+		t.Fatal(err)
+	}
+	if len(api.started) != 1 || api.started[0] != allowedID {
+		t.Fatalf("started = %v, want [%s]", api.started, allowedID)
+	}
+}
+
 func TestPing(t *testing.T) {
 	api := &fakeAPI{}
 	svc := newTestService(api)
