@@ -20,8 +20,24 @@ func validInput() Input {
 }
 
 func TestValidateAcceptsValidRule(t *testing.T) {
-	if err := Validate(validInput()); err != nil {
+	in := validInput()
+	if err := Validate(&in); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateNormalizesInput(t *testing.T) {
+	in := validInput()
+	in.ContainerID = "  " + in.ContainerID + "  "
+	in.ContainerName = "  /web  "
+	in.Cron = "  0 8 * * 1-5  "
+	in.Timezone = "  Europe/Berlin  "
+	if err := Validate(&in); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if in.ContainerID != "0123456789ab" || in.ContainerName != "/web" ||
+		in.Cron != "0 8 * * 1-5" || in.Timezone != "Europe/Berlin" {
+		t.Errorf("input was not normalized: %+v", in)
 	}
 }
 
@@ -30,7 +46,7 @@ func TestValidateRejectsBadCron(t *testing.T) {
 	for _, expr := range cases {
 		in := validInput()
 		in.Cron = expr
-		err := Validate(in)
+		err := Validate(&in)
 		if err == nil {
 			t.Fatalf("expected error for cron %q", expr)
 		}
@@ -45,7 +61,7 @@ func TestValidateRejectsBadTimezoneAndAction(t *testing.T) {
 	in := validInput()
 	in.Timezone = "Europe/Nowhere"
 	in.Action = "KILL"
-	err := Validate(in)
+	err := Validate(&in)
 	if err == nil {
 		t.Fatal("expected validation error")
 	}
@@ -109,7 +125,7 @@ func TestCronPreview(t *testing.T) {
 func TestValidationErrorMessageIsHelpful(t *testing.T) {
 	in := validInput()
 	in.Cron = "nope"
-	err := Validate(in).(*ValidationError)
+	err := Validate(&in).(*ValidationError)
 	if !strings.Contains(strings.ToLower(err.Fields["cron_expression"]), "cron") {
 		t.Errorf("message not helpful: %s", err.Fields["cron_expression"])
 	}

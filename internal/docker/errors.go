@@ -14,6 +14,8 @@ var (
 	ErrConflict = errors.New("container state conflict")
 	// ErrNotAllowed means the container is outside Docktimer's scope.
 	ErrNotAllowed = errors.New("container is not managed by docktimer")
+	// ErrAmbiguous means a container reference matches more than one container.
+	ErrAmbiguous = errors.New("container reference is ambiguous")
 	// ErrTimeout means the Docker call timed out.
 	ErrTimeout = errors.New("docker operation timed out")
 )

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"sync"
 
 	"github.com/atpanos/docktimer/internal/auth"
 	"github.com/atpanos/docktimer/internal/config"
@@ -37,6 +38,10 @@ type Deps struct {
 // Handler holds all HTTP handlers.
 type Handler struct {
 	deps Deps
+
+	// ruleMu serializes rule mutations with their scheduler update, so the
+	// scheduler always reflects the last committed row.
+	ruleMu sync.Mutex
 }
 
 // New creates a handler set.
@@ -134,7 +139,7 @@ func redirectWithFlash(c *gin.Context, path, code string) {
 	c.Redirect(http.StatusSeeOther, path+"?flash="+code)
 }
 
-// dockerErrorText maps Docker errors to German UI messages.
+// dockerErrorText maps Docker errors to UI messages.
 func dockerErrorText(err error) string {
 	switch {
 	case err == nil:
@@ -147,6 +152,8 @@ func dockerErrorText(err error) string {
 		return "The container is in a state that does not allow this action."
 	case errors.Is(err, docker.ErrNotAllowed):
 		return "This container is not managed by Docktimer."
+	case errors.Is(err, docker.ErrAmbiguous):
+		return "Multiple containers match this reference. Please select one."
 	case errors.Is(err, docker.ErrTimeout):
 		return "The Docker action took too long."
 	default:
@@ -154,7 +161,7 @@ func dockerErrorText(err error) string {
 	}
 }
 
-// actionText returns the German verb for an action.
+// actionText returns the verb for an action.
 func actionText(a database.Action) string {
 	switch a {
 	case database.ActionStart:

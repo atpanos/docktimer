@@ -28,17 +28,18 @@ type rulesPageData struct {
 }
 
 type ruleFormData struct {
-	IsNew        bool
-	ID           int64
-	Input        rules.Input
-	Errors       map[string]string
-	Containers   []docker.Container
-	DockerErr    string
-	TZOptions    []string
-	Preview      []time.Time
-	PreviewErr   string
-	TZ           string
-	ActionValues []database.Action
+	IsNew           bool
+	ID              int64
+	Input           rules.Input
+	Errors          map[string]string
+	ContainerHidden bool
+	Containers      []docker.Container
+	DockerErr       string
+	TZOptions       []string
+	Preview         []time.Time
+	PreviewErr      string
+	TZ              string
+	ActionValues    []database.Action
 }
 
 // RulesPage lists all rules with their next run.
@@ -83,13 +84,16 @@ func (h *Handler) CreateRule(c *gin.Context) {
 	if !h.requireAdmin(c) {
 		return
 	}
+	h.ruleMu.Lock()
+	defer h.ruleMu.Unlock()
 	in := parseRuleInput(c)
-	name, err := h.resolveContainer(c, in.ContainerID)
+	ct, err := h.resolveContainer(c, in.ContainerID)
 	if err != nil {
 		h.renderRuleError(c, 0, in, map[string]string{"container_id": dockerErrorText(err)}, true)
 		return
 	}
-	in.ContainerName = name
+	in.ContainerID = ct.ID
+	in.ContainerName = ct.Name
 
 	user, _ := middleware.CurrentUser(c)
 	var createdBy *int64
@@ -155,18 +159,38 @@ func (h *Handler) UpdateRule(c *gin.Context) {
 	if !h.requireAdmin(c) {
 		return
 	}
+	h.ruleMu.Lock()
+	defer h.ruleMu.Unlock()
 	id, ok := paramID(c)
 	if !ok {
 		h.errorPage(c, http.StatusNotFound, "Rule not found.")
 		return
 	}
 	in := parseRuleInput(c)
-	name, err := h.resolveContainer(c, in.ContainerID)
+	existing, err := h.deps.Rules.Get(c.Request.Context(), id)
 	if err != nil {
-		h.renderRuleError(c, id, in, map[string]string{"container_id": dockerErrorText(err)}, false)
+		if errors.Is(err, database.ErrNotFound) {
+			h.errorPage(c, http.StatusNotFound, "Rule not found.")
+			return
+		}
+		h.deps.Log.Error("load rule", "error", err)
+		h.errorPage(c, http.StatusInternalServerError, "Could not load the rule.")
 		return
 	}
-	in.ContainerName = name
+	if strings.TrimSpace(in.ContainerID) == existing.ContainerID {
+		// The container is unchanged. Allow saving other fields even when the
+		// container is currently locked or no longer visible.
+		in.ContainerID = existing.ContainerID
+		in.ContainerName = existing.ContainerName
+	} else {
+		ct, err := h.resolveContainer(c, in.ContainerID)
+		if err != nil {
+			h.renderRuleError(c, id, in, map[string]string{"container_id": dockerErrorText(err)}, false)
+			return
+		}
+		in.ContainerID = ct.ID
+		in.ContainerName = ct.Name
+	}
 
 	rule, err := h.deps.Rules.Update(c.Request.Context(), id, in)
 	if err != nil {
@@ -192,6 +216,8 @@ func (h *Handler) ToggleRule(c *gin.Context) {
 	if !h.requireAdmin(c) {
 		return
 	}
+	h.ruleMu.Lock()
+	defer h.ruleMu.Unlock()
 	id, ok := paramID(c)
 	if !ok {
 		h.errorPage(c, http.StatusNotFound, "Rule not found.")
@@ -226,6 +252,8 @@ func (h *Handler) DeleteRule(c *gin.Context) {
 	if !h.requireAdmin(c) {
 		return
 	}
+	h.ruleMu.Lock()
+	defer h.ruleMu.Unlock()
 	id, ok := paramID(c)
 	if !ok {
 		h.errorPage(c, http.StatusNotFound, "Rule not found.")
@@ -257,6 +285,16 @@ func (h *Handler) renderRuleForm(c *gin.Context, status int, data ruleFormData) 
 		data.DockerErr = dockerErrorText(err)
 	}
 	data.Containers = containers
+	if data.Input.ContainerID != "" {
+		found := false
+		for _, ct := range containers {
+			if ct.ID == data.Input.ContainerID {
+				found = true
+				break
+			}
+		}
+		data.ContainerHidden = !found
+	}
 	if len(data.TZOptions) == 0 {
 		data.TZOptions = timezoneOptions(h.deps.Cfg.DefaultTimezone)
 	}
@@ -304,24 +342,44 @@ func parseRuleInput(c *gin.Context) rules.Input {
 	}
 }
 
-func (h *Handler) resolveContainer(c *gin.Context, ref string) (string, error) {
+// resolveContainer maps a submitted reference to exactly one container. Exact
+// IDs and names win; ambiguous ID prefixes are rejected instead of picking the
+// first match.
+func (h *Handler) resolveContainer(c *gin.Context, ref string) (docker.Container, error) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
-		return "", docker.ErrNotFound
+		return docker.Container{}, docker.ErrNotFound
 	}
 	list, err := h.deps.Docker.List(c.Request.Context())
 	if err != nil {
-		return "", err
+		return docker.Container{}, err
 	}
+
+	var prefixMatches []docker.Container
 	for _, ct := range list {
-		if ct.ID == ref || strings.HasPrefix(ct.ID, ref) || ct.Name == ref {
+		if ct.ID == ref || ct.Name == ref {
 			if !ct.Controllable {
-				return "", docker.ErrNotAllowed
+				return docker.Container{}, docker.ErrNotAllowed
 			}
-			return ct.Name, nil
+			return ct, nil
+		}
+		if strings.HasPrefix(ct.ID, ref) {
+			prefixMatches = append(prefixMatches, ct)
 		}
 	}
-	return "", docker.ErrNotFound
+
+	switch len(prefixMatches) {
+	case 0:
+		return docker.Container{}, docker.ErrNotFound
+	case 1:
+		ct := prefixMatches[0]
+		if !ct.Controllable {
+			return docker.Container{}, docker.ErrNotAllowed
+		}
+		return ct, nil
+	default:
+		return docker.Container{}, docker.ErrAmbiguous
+	}
 }
 
 func timezoneOptions(current string) []string {

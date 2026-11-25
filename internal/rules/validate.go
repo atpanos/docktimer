@@ -41,7 +41,7 @@ func (e *ValidationError) FieldsOrNil() map[string]string {
 var containerRefRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`)
 
 // Validate checks all rule fields and returns a ValidationError on failure.
-func Validate(in Input) error {
+func Validate(in *Input) error {
 	fields := map[string]string{}
 
 	in.ContainerID = strings.TrimSpace(in.ContainerID)

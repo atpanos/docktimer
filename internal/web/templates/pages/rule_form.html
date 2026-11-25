@@ -15,11 +15,11 @@
     <select class="input" id="container_id" name="container_id" required>
       <option value="">— select —</option>
       {{range .Data.Containers}}
-        <option value="{{.ID}}" {{if eq $.Data.Input.ContainerID .ID}}selected{{end}} {{if not .Controllable}}disabled{{end}}>
+        <option value="{{.ID}}" {{if eq $.Data.Input.ContainerID .ID}}selected{{end}} {{if and (not .Controllable) (ne .ID $.Data.Input.ContainerID)}}disabled{{end}}>
           {{.Name}} · {{.Image}}{{if not .Controllable}} (locked){{end}}
         </option>
       {{end}}
-      {{if and .Data.Input.ContainerID (not .Data.Containers)}}
+      {{if .Data.ContainerHidden}}
         <option value="{{.Data.Input.ContainerID}}" selected>{{.Data.Input.ContainerName}} (currently not visible)</option>
       {{end}}
     </select>

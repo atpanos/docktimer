@@ -31,7 +31,7 @@ func (s *Service) Get(ctx context.Context, id int64) (database.Rule, error) {
 
 // Create validates and stores a new rule.
 func (s *Service) Create(ctx context.Context, in Input, createdBy *int64) (database.Rule, error) {
-	if err := Validate(in); err != nil {
+	if err := Validate(&in); err != nil {
 		return database.Rule{}, err
 	}
 	return s.store.CreateRule(ctx, database.Rule{
@@ -47,7 +47,7 @@ func (s *Service) Create(ctx context.Context, in Input, createdBy *int64) (datab
 
 // Update validates and updates an existing rule.
 func (s *Service) Update(ctx context.Context, id int64, in Input) (database.Rule, error) {
-	if err := Validate(in); err != nil {
+	if err := Validate(&in); err != nil {
 		return database.Rule{}, err
 	}
 	existing, err := s.store.RuleByID(ctx, id)

@@ -46,8 +46,14 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
-	db.SetMaxOpenConns(10)
-	db.SetMaxIdleConns(10)
+	// A :memory: database is private to one connection. Without pinning the
+	// pool, another connection would see an empty database without the schema.
+	maxConns := 10
+	if path == ":memory:" {
+		maxConns = 1
+	}
+	db.SetMaxOpenConns(maxConns)
+	db.SetMaxIdleConns(maxConns)
 
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()

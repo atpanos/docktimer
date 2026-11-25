@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/atpanos/docktimer/internal/database"
@@ -35,6 +36,7 @@ func (p PageData) IsAdmin() bool { return p.User != nil && p.User.Role == databa
 type Renderer struct {
 	fsys  fs.FS
 	dev   bool
+	mu    sync.Mutex
 	pages map[string]*template.Template
 	frags *template.Template
 }
@@ -77,12 +79,15 @@ func (r *Renderer) load() error {
 
 // Page renders a full page by name.
 func (r *Renderer) Page(w io.Writer, page string, data PageData) error {
+	r.mu.Lock()
 	if r.dev {
 		if err := r.load(); err != nil {
+			r.mu.Unlock()
 			return err
 		}
 	}
 	t, ok := r.pages[page]
+	r.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("unknown page %q", page)
 	}
@@ -91,16 +96,22 @@ func (r *Renderer) Page(w io.Writer, page string, data PageData) error {
 
 // Fragment renders a named partial.
 func (r *Renderer) Fragment(w io.Writer, name string, data any) error {
+	r.mu.Lock()
 	if r.dev {
 		if err := r.load(); err != nil {
+			r.mu.Unlock()
 			return err
 		}
 	}
-	return r.frags.ExecuteTemplate(w, name, data)
+	frags := r.frags
+	r.mu.Unlock()
+	return frags.ExecuteTemplate(w, name, data)
 }
 
 // HasPage reports whether a page template exists.
 func (r *Renderer) HasPage(name string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	_, ok := r.pages[name]
 	return ok
 }
