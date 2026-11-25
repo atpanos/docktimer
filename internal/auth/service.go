@@ -93,6 +93,16 @@ func (s *Service) NeedsSetup(ctx context.Context) (bool, error) {
 
 // Setup creates the first admin and logs it in.
 func (s *Service) Setup(ctx context.Context, username, password, ip, userAgent string) (string, database.User, error) {
+	// Reject an already completed setup before validating and hashing the
+	// password: bcrypt is expensive and the public /setup route must not be
+	// usable for CPU exhaustion after the initial admin exists.
+	needsSetup, err := s.NeedsSetup(ctx)
+	if err != nil {
+		return "", database.User{}, err
+	}
+	if !needsSetup {
+		return "", database.User{}, ErrSetupAlreadyDone
+	}
 	if err := ValidateUsername(username); err != nil {
 		return "", database.User{}, err
 	}

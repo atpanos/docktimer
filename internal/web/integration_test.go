@@ -233,6 +233,20 @@ func TestSetupLoginRuleToggleAndLog(t *testing.T) {
 	}
 	adminToken := csrfFromMeta(t, body)
 
+	// A second POST /setup must be rejected before hashing, so a completed
+	// setup cannot be used as a bcrypt CPU-exhaustion amplifier. The public
+	// route validates CSRF against an empty session, so reuse the token from
+	// the initial (unauthenticated) setup form.
+	status, body, _ = post(t, c, base+"/setup", url.Values{
+		"csrf_token": {token},
+		"username":   {"other"},
+		"password":   {"other-password-123"},
+		"confirm":    {"other-password-123"},
+	}, "", false)
+	if status != http.StatusUnprocessableEntity || !strings.Contains(body, "Setup has already been completed") {
+		t.Fatalf("second POST /setup = %d, body=%q", status, body)
+	}
+
 	// Create a rule through the real HTTP handler.
 	status, _, loc = post(t, c, base+"/rules", url.Values{
 		"csrf_token":      {adminToken},
