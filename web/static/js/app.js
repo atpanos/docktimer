@@ -66,11 +66,13 @@
   });
 
   document.addEventListener("htmx:beforeSwap", function (event) {
-    var elt = event.detail && event.detail.elt;
-    // A poll that was already in flight must not detach the table while an
-    // action is pending, otherwise its response and toast would be lost.
-    if (elt && elt.id === "container-table" && pendingActions > 0) {
-      event.detail.shouldSwap = false;
+    var detail = event.detail || {};
+    var path = detail.pathInfo && detail.pathInfo.requestPath;
+    // On htmx:beforeSwap, detail.elt is the swap target (the table), not the
+    // request source. Suppress only the in-flight poll response; the action
+    // response must still update the table and deliver its toast.
+    if (path === "/containers/table" && pendingActions > 0) {
+      detail.shouldSwap = false;
     }
   });
 
