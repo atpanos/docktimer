@@ -35,7 +35,7 @@ updates:
           - minor
           - patch
 
-  # Dockerfile base images and docker-compose*.yml images
+  # Dockerfile base images
   - package-ecosystem: docker
     directory: "/"
     schedule:
@@ -46,6 +46,23 @@ updates:
       prefix: "docker"
     groups:
       docker-images:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  # Images referenced by docker-compose*.yml
+  - package-ecosystem: docker-compose
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "compose"
+    groups:
+      compose-images:
         patterns:
           - "*"
         update-types:
