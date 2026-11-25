@@ -269,10 +269,10 @@ With Compose, on the same host (volume from `docker volume inspect`):
 docker run --rm \
   -v docktimer_docktimer-data:/data \
   -v "$PWD/backups:/backup" \
-  alpine:3.24 sh -c '
+  alpine:3.24 sh -c "
     apk add -q sqlite
-    sqlite3 /data/docktimer.db "VACUUM INTO /backup/docktimer-$(date +%F-%H%M).db"
-  '
+    sqlite3 /data/docktimer.db \"VACUUM INTO '/backup/docktimer-\$(date +%F-%H%M).db'\"
+  "
 ```
 
 `VACUUM INTO` creates a consistent copy in WAL mode without stopping the app.
