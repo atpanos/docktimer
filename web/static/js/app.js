@@ -52,11 +52,16 @@
   }
 
   document.addEventListener("htmx:beforeRequest", function (event) {
-    var elt = event.detail && event.detail.elt;
+    var detail = event.detail || {};
+    var elt = detail.elt;
     if (isActionButton(elt)) {
+      if (!detail.xhr) return;
       pendingActions += 1;
+      // Track the request, not the button: the response replaces the table
+      // and detaches the button before htmx fires afterRequest.
+      detail.xhr.dtPendingAction = true;
+      detail.xhr.dtActionButton = elt;
       elt.setAttribute("aria-busy", "true");
-      elt.dataset.dtPending = "1";
       return;
     }
     // Do not start a poll while a container action is still running.
@@ -77,10 +82,16 @@
   });
 
   document.addEventListener("htmx:afterRequest", function (event) {
-    var elt = event.detail && event.detail.elt;
-    if (!elt || !elt.dataset || elt.dataset.dtPending !== "1") return;
-    delete elt.dataset.dtPending;
-    elt.removeAttribute("aria-busy");
+    var detail = event.detail || {};
+    var xhr = detail.xhr;
+    if (!xhr || !xhr.dtPendingAction) return;
+    xhr.dtPendingAction = false;
+    // The button may have been replaced with the table; only clear the busy
+    // state if that exact element is still in the document.
+    if (xhr.dtActionButton && xhr.dtActionButton.isConnected) {
+      xhr.dtActionButton.removeAttribute("aria-busy");
+    }
+    xhr.dtActionButton = null;
     pendingActions = Math.max(0, pendingActions - 1);
   });
 })();
