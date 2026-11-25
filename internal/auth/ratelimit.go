@@ -31,25 +31,11 @@ func NewLimiter(max int, window time.Duration) *Limiter {
 	}
 }
 
-// Allowed reports whether another attempt is allowed and, if not, how long the
-// caller should wait.
-func (l *Limiter) Allowed(key string) (bool, time.Duration) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	now := l.now()
-	b, ok := l.buckets[key]
-	if !ok || now.After(b.reset) {
-		return true, 0
-	}
-	if b.count < l.max {
-		return true, 0
-	}
-	return false, b.reset.Sub(now)
-}
-
-// Fail records a failed attempt.
-func (l *Limiter) Fail(key string) {
+// Allow reports whether another attempt is allowed and, if not, how long the
+// caller should wait. An allowed attempt is reserved atomically, so concurrent
+// callers cannot exceed max. The reservation counts as a failed attempt unless
+// the caller calls Reset (success) or Release (aborted before a decision).
+func (l *Limiter) Allow(key string) (bool, time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -57,9 +43,29 @@ func (l *Limiter) Fail(key string) {
 	b, ok := l.buckets[key]
 	if !ok || now.After(b.reset) {
 		l.buckets[key] = &bucket{count: 1, reset: now.Add(l.window)}
+		return true, 0
+	}
+	if b.count < l.max {
+		b.count++
+		return true, 0
+	}
+	return false, b.reset.Sub(now)
+}
+
+// Release gives back a reservation that did not reach a credential decision,
+// e.g. because of a database error. It must not be used for failed logins.
+func (l *Limiter) Release(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	b, ok := l.buckets[key]
+	if !ok || b.count <= 0 {
 		return
 	}
-	b.count++
+	b.count--
+	if b.count == 0 {
+		delete(l.buckets, key)
+	}
 }
 
 // Reset clears the counter for a key, e.g. after a successful login.

@@ -117,7 +117,7 @@ func (s *Service) Setup(ctx context.Context, username, password, ip, userAgent s
 // Login verifies credentials and creates a session.
 func (s *Service) Login(ctx context.Context, username, password, ip, userAgent string) (string, database.User, error) {
 	key := strings.ToLower(strings.TrimSpace(ip)) + "|" + strings.ToLower(strings.TrimSpace(username))
-	if ok, retry := s.limiter.Allowed(key); !ok {
+	if ok, retry := s.limiter.Allow(key); !ok {
 		return "", database.User{}, &RateLimitError{RetryAfter: retry}
 	}
 
@@ -125,15 +125,17 @@ func (s *Service) Login(ctx context.Context, username, password, ip, userAgent s
 	if err != nil {
 		if errors.Is(err, database.ErrNotFound) {
 			// Constant-ish time: compare against a dummy hash so user
-			// enumeration through timing is harder.
+			// enumeration through timing is harder. The reserved attempt stays
+			// counted as a failed login.
 			s.compareDummy(password)
-			s.limiter.Fail(key)
 			return "", database.User{}, ErrInvalidCredentials
 		}
+		// Infrastructure failure, not a credential decision: give the attempt
+		// back so a broken database cannot lock users out.
+		s.limiter.Release(key)
 		return "", database.User{}, err
 	}
 	if !CheckPassword(user.PasswordHash, password) {
-		s.limiter.Fail(key)
 		return "", database.User{}, ErrInvalidCredentials
 	}
 	s.limiter.Reset(key)
