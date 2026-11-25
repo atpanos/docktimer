@@ -21,6 +21,13 @@ type bucket struct {
 	reset time.Time
 }
 
+// Reservation identifies the bucket charged by one allowed attempt. Release
+// only refunds an attempt while that bucket is still current, so a delayed
+// refund cannot free a charge from a later window.
+type Reservation struct {
+	bucket *bucket
+}
+
 // NewLimiter creates a limiter that allows max attempts per window.
 func NewLimiter(max int, window time.Duration) *Limiter {
 	return &Limiter{
@@ -35,31 +42,33 @@ func NewLimiter(max int, window time.Duration) *Limiter {
 // caller should wait. An allowed attempt is reserved atomically, so concurrent
 // callers cannot exceed max. The reservation counts as a failed attempt unless
 // the caller calls Reset (success) or Release (aborted before a decision).
-func (l *Limiter) Allow(key string) (bool, time.Duration) {
+func (l *Limiter) Allow(key string) (bool, time.Duration, Reservation) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	now := l.now()
 	b, ok := l.buckets[key]
 	if !ok || now.After(b.reset) {
-		l.buckets[key] = &bucket{count: 1, reset: now.Add(l.window)}
-		return true, 0
+		b = &bucket{count: 1, reset: now.Add(l.window)}
+		l.buckets[key] = b
+		return true, 0, Reservation{bucket: b}
 	}
 	if b.count < l.max {
 		b.count++
-		return true, 0
+		return true, 0, Reservation{bucket: b}
 	}
-	return false, b.reset.Sub(now)
+	return false, b.reset.Sub(now), Reservation{}
 }
 
 // Release gives back a reservation that did not reach a credential decision,
 // e.g. because of a database error. It must not be used for failed logins.
-func (l *Limiter) Release(key string) {
+// Refunds for a bucket that has since been replaced or swept are ignored.
+func (l *Limiter) Release(key string, r Reservation) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	b, ok := l.buckets[key]
-	if !ok || b.count <= 0 {
+	if !ok || b != r.bucket || b.count <= 0 {
 		return
 	}
 	b.count--

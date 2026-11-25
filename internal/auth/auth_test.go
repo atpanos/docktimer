@@ -67,11 +67,11 @@ func TestLimiterBlocksAfterMax(t *testing.T) {
 	l.now = func() time.Time { return now }
 
 	for i := 0; i < 3; i++ {
-		if ok, _ := l.Allow("ip"); !ok {
+		if ok, _, _ := l.Allow("ip"); !ok {
 			t.Fatalf("attempt %d blocked too early", i+1)
 		}
 	}
-	ok, retry := l.Allow("ip")
+	ok, retry, _ := l.Allow("ip")
 	if ok {
 		t.Fatal("limiter did not block")
 	}
@@ -80,32 +80,63 @@ func TestLimiterBlocksAfterMax(t *testing.T) {
 	}
 
 	// A different key is independent.
-	if ok, _ := l.Allow("other"); !ok {
+	if ok, _, _ := l.Allow("other"); !ok {
 		t.Error("other key blocked")
 	}
 
 	// After the window the counter resets.
 	now = now.Add(2 * time.Minute)
-	if ok, _ := l.Allow("ip"); !ok {
+	if ok, _, _ := l.Allow("ip"); !ok {
 		t.Error("limiter did not reset")
 	}
 }
 
 func TestLimiterRelease(t *testing.T) {
 	l := NewLimiter(1, time.Minute)
-	if ok, _ := l.Allow("k"); !ok {
+	ok, _, res := l.Allow("k")
+	if !ok {
 		t.Fatal("first attempt blocked")
 	}
-	if ok, _ := l.Allow("k"); ok {
+	if ok, _, _ := l.Allow("k"); ok {
 		t.Fatal("expected block")
 	}
-	l.Release("k")
-	if ok, _ := l.Allow("k"); !ok {
+	l.Release("k", res)
+	if ok, _, _ := l.Allow("k"); !ok {
 		t.Fatal("release did not free the reservation")
 	}
 	l.Reset("k")
-	if ok, _ := l.Allow("k"); !ok {
+	if ok, _, _ := l.Allow("k"); !ok {
 		t.Fatal("reset did not clear the bucket")
+	}
+}
+
+func TestLimiterReleaseIgnoresStaleReservation(t *testing.T) {
+	l := NewLimiter(1, time.Minute)
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	l.now = func() time.Time { return now }
+
+	ok, _, stale := l.Allow("k")
+	if !ok {
+		t.Fatal("first attempt blocked")
+	}
+
+	// Move past the window: the next admission creates a new bucket.
+	now = now.Add(2 * time.Minute)
+	ok, _, current := l.Allow("k")
+	if !ok {
+		t.Fatal("attempt after window reset blocked")
+	}
+
+	// A delayed refund for the old bucket must not free the new charge.
+	l.Release("k", stale)
+	if ok, _, _ := l.Allow("k"); ok {
+		t.Fatal("stale release freed a newer reservation")
+	}
+
+	// The current reservation can still be refunded.
+	l.Release("k", current)
+	if ok, _, _ := l.Allow("k"); !ok {
+		t.Fatal("current release did not free the reservation")
 	}
 }
 
@@ -126,7 +157,7 @@ func TestLimiterConcurrentAdmissionsRespectMax(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			if ok, _ := l.Allow("same-key"); ok {
+			if ok, _, _ := l.Allow("same-key"); ok {
 				admitted.Add(1)
 			}
 		}()

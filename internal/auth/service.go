@@ -127,7 +127,8 @@ func (s *Service) Setup(ctx context.Context, username, password, ip, userAgent s
 // Login verifies credentials and creates a session.
 func (s *Service) Login(ctx context.Context, username, password, ip, userAgent string) (string, database.User, error) {
 	key := strings.ToLower(strings.TrimSpace(ip)) + "|" + strings.ToLower(strings.TrimSpace(username))
-	if ok, retry := s.limiter.Allow(key); !ok {
+	allowed, retry, reservation := s.limiter.Allow(key)
+	if !allowed {
 		return "", database.User{}, &RateLimitError{RetryAfter: retry}
 	}
 
@@ -142,7 +143,7 @@ func (s *Service) Login(ctx context.Context, username, password, ip, userAgent s
 		}
 		// Infrastructure failure, not a credential decision: give the attempt
 		// back so a broken database cannot lock users out.
-		s.limiter.Release(key)
+		s.limiter.Release(key, reservation)
 		return "", database.User{}, err
 	}
 	if !CheckPassword(user.PasswordHash, password) {
