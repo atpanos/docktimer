@@ -235,9 +235,24 @@ func (s *Scheduler) removeLocked(id int64) {
 	}
 }
 
+// advanceNextLocked refreshes the next run for the current registration only.
+// A delayed completion from an older registration must not overwrite the
+// schedule of a replacement rule.
+func (s *Scheduler) advanceNextLocked(r database.Rule, gen uint64) {
+	if gen == 0 || s.gen[r.ID] != gen {
+		return
+	}
+	if next, err := rules.NextRun(r.CronExpression, r.Timezone, time.Now()); err == nil {
+		s.next[r.ID] = next
+	}
+}
+
 func (s *Scheduler) job(r database.Rule, gen uint64) {
 	s.mu.Lock()
 	if _, busy := s.running[r.ID]; busy {
+		// The dispatch still counts: move the displayed next run forward even
+		// though this execution is skipped because the previous one is active.
+		s.advanceNextLocked(r, gen)
 		s.mu.Unlock()
 		_, _ = s.logs.Record(s.rootCtx, database.ExecutionLog{
 			RuleID:        &r.ID,
@@ -260,14 +275,7 @@ func (s *Scheduler) job(r database.Rule, gen uint64) {
 		}
 		s.mu.Lock()
 		delete(s.running, r.ID)
-		// Only refresh the next run while this exact registration is current.
-		// A rule that was updated or replaced while the job ran must keep the
-		// schedule computed for its newer cron expression.
-		if gen != 0 && s.gen[r.ID] == gen {
-			if next, err := rules.NextRun(r.CronExpression, r.Timezone, time.Now()); err == nil {
-				s.next[r.ID] = next
-			}
-		}
+		s.advanceNextLocked(r, gen)
 		s.mu.Unlock()
 		s.wg.Done()
 	}()

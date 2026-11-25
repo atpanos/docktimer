@@ -257,3 +257,58 @@ func TestJobIsSkippedWhilePreviousRunIsActive(t *testing.T) {
 	}
 	delete(s.running, rule.ID)
 }
+
+func TestSkippedRunAdvancesNextRun(t *testing.T) {
+	sink := &fakeSink{}
+	runner := &fakeRunner{}
+	s := newScheduler(runner, &fakeSource{}, sink)
+	rule := testRule()
+	s.Upsert(rule)
+
+	s.mu.Lock()
+	s.next[rule.ID] = time.Now().Add(-time.Hour)
+	s.running[rule.ID] = struct{}{}
+	gen := s.gen[rule.ID]
+	s.mu.Unlock()
+
+	s.job(rule, gen)
+
+	if runner.calls != 0 {
+		t.Error("job ran although a previous run was active")
+	}
+	if entry, ok := sink.last(); !ok || entry.Status != database.StatusFailed {
+		t.Errorf("expected skipped-run log, got %+v", entry)
+	}
+	next, ok := s.Next(rule.ID)
+	if !ok || !next.After(time.Now()) {
+		t.Errorf("skipped run did not advance next: %v (ok=%v)", next, ok)
+	}
+
+	s.mu.Lock()
+	delete(s.running, rule.ID)
+	s.mu.Unlock()
+}
+
+func TestStaleSkippedRunDoesNotAdvanceNextRun(t *testing.T) {
+	sink := &fakeSink{}
+	s := newScheduler(&fakeRunner{}, &fakeSource{}, sink)
+	rule := testRule()
+	s.Upsert(rule)
+
+	s.mu.Lock()
+	s.next[rule.ID] = time.Now().Add(-time.Hour)
+	s.running[rule.ID] = struct{}{}
+	stale := s.gen[rule.ID] + 1
+	s.mu.Unlock()
+
+	s.job(rule, stale)
+
+	next, ok := s.Next(rule.ID)
+	if !ok || !next.Before(time.Now()) {
+		t.Errorf("stale skipped run changed next: %v (ok=%v)", next, ok)
+	}
+
+	s.mu.Lock()
+	delete(s.running, rule.ID)
+	s.mu.Unlock()
+}
