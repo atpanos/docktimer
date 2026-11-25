@@ -238,23 +238,17 @@ func (s *Service) ChangePassword(ctx context.Context, userID int64, current, nex
 
 // DeleteUser removes an account, protecting the last admin.
 func (s *Service) DeleteUser(ctx context.Context, id int64) error {
-	user, err := s.store.UserByID(ctx, id)
-	if err != nil {
-		if errors.Is(err, database.ErrNotFound) {
-			return ErrUserNotFound
-		}
+	err := s.store.DeleteUser(ctx, id)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, database.ErrNotFound):
+		return ErrUserNotFound
+	case errors.Is(err, database.ErrLastAdmin):
+		return ErrLastAdmin
+	default:
 		return err
 	}
-	if user.Role == database.RoleAdmin {
-		admins, err := s.store.CountAdmins(ctx)
-		if err != nil {
-			return err
-		}
-		if admins <= 1 {
-			return ErrLastAdmin
-		}
-	}
-	return s.store.DeleteUser(ctx, id)
 }
 
 // Cleanup deletes expired sessions and sweeps the rate limiter.

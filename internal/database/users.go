@@ -162,14 +162,35 @@ func (s *Store) UpdatePassword(ctx context.Context, id int64, hash string) error
 	return nil
 }
 
+// ErrLastAdmin is returned when deleting the only admin account.
+var ErrLastAdmin = errors.New("cannot delete the last admin")
+
 // DeleteUser removes a user. Sessions are removed by the foreign key cascade.
+// The last-admin check and the delete are a single statement, so two concurrent
+// deletions can never remove every admin.
 func (s *Store) DeleteUser(ctx context.Context, id int64) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, id)
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM users
+		 WHERE id = ?
+		   AND (role <> ? OR (SELECT COUNT(1) FROM users WHERE role = ?) > 1)`,
+		id, RoleAdmin, RoleAdmin)
 	if err != nil {
 		return fmt.Errorf("delete user: %w", err)
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
+	if n, _ := res.RowsAffected(); n > 0 {
+		return nil
 	}
-	return nil
+
+	// Nothing was deleted: distinguish a missing user from the last admin.
+	var role string
+	if err := s.db.QueryRowContext(ctx, `SELECT role FROM users WHERE id = ?`, id).Scan(&role); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("check user after delete: %w", err)
+	}
+	if Role(role) == RoleAdmin {
+		return ErrLastAdmin
+	}
+	return ErrNotFound
 }

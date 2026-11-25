@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -60,11 +61,93 @@ func TestUserLifecycle(t *testing.T) {
 	if got.PasswordHash != "hash-c" {
 		t.Errorf("password not updated: %q", got.PasswordHash)
 	}
-	if err := store.DeleteUser(ctx, u.ID); err != nil {
+	viewer, err := store.CreateUser(ctx, "viewer", "hash-d", RoleViewer)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.UserByID(ctx, u.ID); !errors.Is(err, ErrNotFound) {
+	if err := store.DeleteUser(ctx, viewer.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UserByID(ctx, viewer.ID); !errors.Is(err, ErrNotFound) {
 		t.Errorf("expected not found, got %v", err)
+	}
+}
+
+func TestDeleteUserProtectsLastAdmin(t *testing.T) {
+	store := newStore(t)
+	ctx := context.Background()
+
+	admin, err := store.CreateUser(ctx, "admin", "hash", RoleAdmin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteUser(ctx, admin.ID); !errors.Is(err, ErrLastAdmin) {
+		t.Fatalf("expected ErrLastAdmin, got %v", err)
+	}
+	if _, err := store.UserByID(ctx, admin.ID); err != nil {
+		t.Fatalf("last admin must survive: %v", err)
+	}
+
+	viewer, err := store.CreateUser(ctx, "viewer", "hash", RoleViewer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteUser(ctx, viewer.ID); err != nil {
+		t.Fatalf("deleting a viewer failed: %v", err)
+	}
+	if err := store.DeleteUser(ctx, 999999); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for missing user, got %v", err)
+	}
+
+	if _, err := store.CreateUser(ctx, "admin2", "hash", RoleAdmin); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteUser(ctx, admin.ID); err != nil {
+		t.Fatalf("deleting an admin while another remains failed: %v", err)
+	}
+}
+
+func TestDeleteUserConcurrentKeepsOneAdmin(t *testing.T) {
+	store := newStore(t)
+	ctx := context.Background()
+
+	a, err := store.CreateUser(ctx, "admin-a", "hash", RoleAdmin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := store.CreateUser(ctx, "admin-b", "hash", RoleAdmin)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	for _, id := range []int64{a.ID, b.ID} {
+		wg.Add(1)
+		go func(id int64) {
+			defer wg.Done()
+			errs <- store.DeleteUser(ctx, id)
+		}(id)
+	}
+	wg.Wait()
+	close(errs)
+
+	deleted, refused := 0, 0
+	for err := range errs {
+		switch {
+		case err == nil:
+			deleted++
+		case errors.Is(err, ErrLastAdmin):
+			refused++
+		default:
+			t.Fatalf("unexpected delete error: %v", err)
+		}
+	}
+	if deleted != 1 || refused != 1 {
+		t.Fatalf("deleted=%d refused=%d, want 1/1", deleted, refused)
+	}
+	if n, err := store.CountAdmins(ctx); err != nil || n != 1 {
+		t.Fatalf("admins after concurrent delete = %d, err=%v", n, err)
 	}
 }
 
