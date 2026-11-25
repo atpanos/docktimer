@@ -47,7 +47,13 @@
             <span class="logo-mark">◷</span>
             <span class="font-semibold text-white">Docktimer</span>
           </a>
-          <span class="text-xs text-slate-500">{{.User.Username}}</span>
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-slate-500">{{.User.Username}}</span>
+            <form method="post" action="/logout">
+              <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+              <button class="btn btn-ghost btn-sm" type="submit">Sign out</button>
+            </form>
+          </div>
         </div>
         <nav class="flex gap-1 overflow-x-auto px-3 pb-2 text-sm">
           <a href="/" class="mobile-nav">Dashboard</a>

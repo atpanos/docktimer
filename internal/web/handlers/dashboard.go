@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"sort"
 	"strings"
@@ -110,7 +111,7 @@ func (h *Handler) ContainerAction(c *gin.Context) {
 	}
 	action := database.Action(strings.ToUpper(c.Param("action")))
 	if !action.Valid() {
-		h.errorPage(c, http.StatusBadRequest, "Unbekannte Aktion.")
+		h.errorPage(c, http.StatusBadRequest, "Unknown action.")
 		return
 	}
 	id := c.Param("id")
@@ -137,13 +138,17 @@ func (h *Handler) ContainerAction(c *gin.Context) {
 		entry.Status = database.StatusFailed
 		entry.Message = err.Error()
 	}
-	if _, recErr := h.deps.Logs.Record(ctx, entry); recErr != nil {
+	// Keep the log when the client disconnects: a canceled request context
+	// must not discard the outcome of an action that already ran.
+	recordCtx, cancelRecord := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancelRecord()
+	if _, recErr := h.deps.Logs.Record(recordCtx, entry); recErr != nil {
 		h.deps.Log.Error("record manual action", "error", recErr)
 	}
 
 	if isHTMX(c) {
 		if err != nil {
-			h.toast(c, "error", "Aktion fehlgeschlagen: "+dockerErrorText(err))
+			h.toast(c, "error", "Action failed: "+dockerErrorText(err))
 		} else {
 			h.toast(c, "success", "Container "+name+" was "+actionText(action)+".")
 		}
@@ -152,10 +157,9 @@ func (h *Handler) ContainerAction(c *gin.Context) {
 	}
 
 	if err != nil {
-		h.page(c, http.StatusOK, "containers", "Containers", "containers", containersData{
-			Containers: h.containersData(c).Containers,
-			DockerErr:  dockerErrorText(err),
-		})
+		data := h.containersData(c)
+		data.DockerErr = dockerErrorText(err)
+		h.page(c, http.StatusOK, "containers", "Containers", "containers", data)
 		return
 	}
 	redirectWithFlash(c, "/containers", "action_ok")

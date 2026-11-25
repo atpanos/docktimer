@@ -32,7 +32,7 @@ is designed for home servers where a full orchestration stack would be overkill.
 ## Requirements
 
 - Docker ≥ 24 and Docker Compose v2 for container deployment
-- Go ≥ 1.24 for local development (tested with 1.27.4)
+- Go ≥ 1.27.4 for local development (`go.mod` requires 1.27.4)
 - Optional: the Tailwind CSS standalone CLI, only when changing the stylesheet
 - A Docker host reachable via `unix:///var/run/docker.sock` or a socket proxy
 
@@ -238,7 +238,7 @@ time zone). Seconds and `@daily` shorthands are rejected on purpose.
 |------------|---------|
 | `0 8 * * 1-5` | Start on weekdays at 08:00 |
 | `0 23 * * *` | Stop daily at 23:00 |
-| `30 6 * * 6,7` | Weekends at 06:30 |
+| `30 6 * * 6,0` | Weekends at 06:30 |
 | `*/15 * * * *` | Every 15 minutes |
 | `0 */4 * * *` | Every 4 hours on the hour |
 | `0 9 1 * *` | 1st of every month at 09:00 |
