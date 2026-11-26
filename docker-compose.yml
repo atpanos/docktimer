@@ -1,0 +1,45 @@
+# Docktimer — base stack.
+#
+# This file deliberately does NOT mount the Docker socket. Pick one override:
+#
+#   Direct socket (simple, full Docker access):
+#     docker compose -f docker-compose.yml -f docker-compose.socket.yml up -d
+#
+#   Socket proxy (recommended, least privilege):
+#     docker compose -f docker-compose.yml -f docker-compose.socket-proxy.yml up -d
+#
+# See README.md → "Docker-Socket-Sicherheit".
+
+services:
+  docktimer:
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-0.0.1}
+    image: docktimer:local
+    container_name: docktimer
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Keep the in-container port in sync with the published port and the
+      # healthcheck, even when APP_PORT comes from the shell instead of .env.
+      APP_PORT: "${APP_PORT:-8080}"
+      DATABASE_PATH: /data/docktimer.db
+    ports:
+      - "${APP_PORT:-8080}:${APP_PORT:-8080}"
+    volumes:
+      - docktimer-data:/data
+    mem_limit: 128m
+    cpus: 0.25
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- \"http://127.0.0.1:${APP_PORT:-8080}/healthz\" >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  docktimer-data:

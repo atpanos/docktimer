@@ -1,0 +1,22 @@
+{{define "content"}}
+<form method="post" action="/login" class="card space-y-4">
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+  <input type="hidden" name="next" value="{{.Data.Next}}">
+
+  {{template "error_box" .Data.Error}}
+
+  <div>
+    <label class="label" for="username">Username</label>
+    <input class="input" id="username" name="username" value="{{.Data.Username}}" autocomplete="username" required autofocus>
+  </div>
+  <div>
+    <label class="label" for="password">Password</label>
+    <input class="input" id="password" name="password" type="password" autocomplete="current-password" required>
+  </div>
+  <button class="btn btn-primary w-full" type="submit">Sign in</button>
+</form>
+
+<p class="mt-6 text-center text-xs text-slate-500">
+  No account yet? <a class="link" href="/setup">Start setup</a>
+</p>
+{{end}}

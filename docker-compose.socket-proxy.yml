@@ -1,0 +1,55 @@
+# Override: route Docker API calls through wollomatic's socket-proxy.
+#
+# This is the recommended deployment. The proxy is only reachable on an
+# internal Docker network, publishes no port, and allows exactly:
+#   - GET  /containers/json                        (list)
+#   - GET  /version, GET|HEAD /_ping               (client handshake)
+#   - POST /containers/{id}/start|stop|restart
+# Everything else (create, delete, exec, images, networks, volumes, secrets,
+# builds) is denied by the default-deny allowlist.
+#
+# Docktimer itself stays on the default (non-internal) network so that the
+# published host port works; the proxy is never attached to that network.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.socket-proxy.yml up -d
+
+services:
+  docktimer:
+    environment:
+      DOCKER_HOST: tcp://docker-socket-proxy:2375
+    networks:
+      - default
+      - docktimer-net
+    depends_on:
+      docker-socket-proxy:
+        condition: service_started
+
+  docker-socket-proxy:
+    image: wollomatic/socket-proxy:1.14.0
+    container_name: docker-socket-proxy
+    restart: unless-stopped
+    command:
+      - '-listenip=0.0.0.0'
+      - '-allowfrom=docktimer'
+      - '-allowGET=^(/v[0-9.]+)?/containers/json$'
+      - '-allowGET=^(/v[0-9.]+)?/version$'
+      - '-allowGET=^(/v[0-9.]+)?/_ping$'
+      - '-allowHEAD=^(/v[0-9.]+)?/_ping$'
+      - '-allowPOST=^(/v[0-9.]+)?/containers/[a-zA-Z0-9_.-]+/(start|stop|restart)$'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    # The proxy runs unprivileged; grant it the host socket's group.
+    group_add:
+      - "${DOCKER_GID:-999}"
+    networks:
+      - docktimer-net
+    # No ports: the proxy must never be reachable from outside this network.
+    mem_limit: 64m
+    cpus: 0.10
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  docktimer-net:
+    internal: true

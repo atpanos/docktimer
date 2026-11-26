@@ -1,0 +1,80 @@
+{{define "content"}}
+<div class="mb-6">
+  <a class="link text-sm" href="/rules">← Back to rules</a>
+  <h1 class="page-title mt-2">{{if .Data.IsNew}}New rule{{else}}Edit rule{{end}}</h1>
+  <p class="page-sub">Choose container, action and schedule.</p>
+</div>
+
+{{template "error_box" .Data.DockerErr}}
+
+<form method="post" action="{{if .Data.IsNew}}/rules{{else}}/rules/{{.Data.ID}}{{end}}" class="card max-w-2xl space-y-5">
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+
+  <div>
+    <label class="label" for="container_id">Container</label>
+    <select class="input" id="container_id" name="container_id" required>
+      <option value="">— select —</option>
+      {{range .Data.Containers}}
+        <option value="{{.ID}}" {{if eq $.Data.Input.ContainerID .ID}}selected{{end}} {{if and (not .Controllable) (ne .ID $.Data.Input.ContainerID)}}disabled{{end}}>
+          {{.Name}} · {{.Image}}{{if not .Controllable}} (locked){{end}}
+        </option>
+      {{end}}
+      {{if .Data.ContainerHidden}}
+        <option value="{{.Data.Input.ContainerID}}" selected>{{.Data.Input.ContainerName}} (currently not visible)</option>
+      {{end}}
+    </select>
+    {{template "field_error" (index .Data.Errors "container_id")}}
+    <p class="hint">Locked containers are excluded via CONTAINER_ALLOWLIST/CONTAINER_DENYLIST.</p>
+  </div>
+
+  <div class="grid gap-4 sm:grid-cols-2">
+    <div>
+      <label class="label" for="action">Action</label>
+      <select class="input" id="action" name="action">
+        {{range .Data.ActionValues}}
+          <option value="{{.}}" {{if eq $.Data.Input.Action .}}selected{{end}}>{{actionLabel .}}</option>
+        {{end}}
+      </select>
+      {{template "field_error" (index .Data.Errors "action")}}
+    </div>
+    <div>
+      <label class="label" for="timezone">Time zone</label>
+      <select class="input" id="timezone" name="timezone">
+        {{range .Data.TZOptions}}
+          <option value="{{.}}" {{if eq $.Data.Input.Timezone .}}selected{{end}}>{{.}}</option>
+        {{end}}
+      </select>
+      {{template "field_error" (index .Data.Errors "timezone")}}
+    </div>
+  </div>
+
+  <div>
+    <label class="label" for="cron_expression">Cron expression</label>
+    <input class="input font-mono" id="cron_expression" name="cron_expression" value="{{.Data.Input.Cron}}"
+           placeholder="0 8 * * 1-5" required spellcheck="false">
+    {{template "field_error" (index .Data.Errors "cron_expression")}}
+    <p class="hint">5 fields: minute hour day month weekday. Example: <code>0 22 * * *</code> = daily at 22:00.</p>
+  </div>
+
+  <label class="flex cursor-pointer items-center gap-3 text-sm text-slate-300">
+    <input type="checkbox" name="enabled" value="1" {{if .Data.Input.Enabled}}checked{{end}}
+           class="h-4 w-4 rounded border-slate-600 bg-slate-800 text-emerald-500 focus:ring-emerald-500">
+    Rule is active
+  </label>
+
+  {{if .Data.Preview}}
+  <div class="rounded-lg border border-slate-800 bg-slate-950/50 p-4">
+    <div class="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Next runs ({{.Data.Input.Timezone}})</div>
+    <ul class="space-y-1 text-sm text-slate-300">
+      {{range .Data.Preview}}<li>{{fmtTime . $.Data.Input.Timezone}}</li>{{end}}
+    </ul>
+  </div>
+  {{end}}
+  {{if .Data.PreviewErr}}<p class="text-xs text-amber-400">Preview not possible: {{.Data.PreviewErr}}</p>{{end}}
+
+  <div class="flex gap-2 border-t border-slate-800 pt-5">
+    <button class="btn btn-primary" type="submit">{{if .Data.IsNew}}Create rule{{else}}Save{{end}}</button>
+    <a class="btn btn-ghost" href="/rules">Cancel</a>
+  </div>
+</form>
+{{end}}

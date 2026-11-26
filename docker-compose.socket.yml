@@ -1,0 +1,23 @@
+# Override: give Docktimer direct access to the host Docker socket.
+#
+# WARNING: /var/run/docker.sock is effectively root-equivalent access to the
+# host. Any process that can write to it can start privileged containers and
+# mount host paths. Use docker-compose.socket-proxy.yml instead whenever the
+# extra isolation is worth the second container.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.socket.yml up -d
+#
+# The socket's group ID varies per host. Detect it with:
+#   stat -c '%g' /var/run/docker.sock
+# and set DOCKER_GID in .env (default 999).
+
+services:
+  docktimer:
+    volumes:
+      - docktimer-data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    group_add:
+      - "${DOCKER_GID:-999}"
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock

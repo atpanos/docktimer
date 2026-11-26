@@ -1,0 +1,28 @@
+{{define "content"}}
+<div class="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+  This instance is not set up yet. Create the admin account now. This step can only be done once.
+</div>
+
+<form method="post" action="/setup" class="card space-y-4">
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+
+  {{template "error_box" .Data.Error}}
+
+  <div>
+    <label class="label" for="username">Admin username</label>
+    <input class="input" id="username" name="username" value="{{.Data.Username}}" autocomplete="username" required autofocus
+           pattern="[a-zA-Z0-9][a-zA-Z0-9_.\-]{2,31}" title="3–32 characters: letters, numbers, dot, underscore, hyphen">
+    <p class="hint">3–32 characters, starting with a letter or digit.</p>
+  </div>
+  <div>
+    <label class="label" for="password">Password</label>
+    <input class="input" id="password" name="password" type="password" autocomplete="new-password" required minlength="10">
+    <p class="hint">At least 10 characters.</p>
+  </div>
+  <div>
+    <label class="label" for="confirm">Confirm password</label>
+    <input class="input" id="confirm" name="confirm" type="password" autocomplete="new-password" required minlength="10">
+  </div>
+  <button class="btn btn-primary w-full" type="submit">Create admin account</button>
+</form>
+{{end}}

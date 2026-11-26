@@ -1,0 +1,12 @@
+.git
+.gitignore
+data
+docktimer
+dist
+tmp
+backups
+docs
+*.db
+*.db-wal
+*.db-shm
+.env

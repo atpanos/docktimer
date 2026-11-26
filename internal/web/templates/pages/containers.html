@@ -1,0 +1,17 @@
+{{define "content"}}
+<div class="mb-6 flex flex-wrap items-end justify-between gap-3">
+  <div>
+    <h1 class="page-title">Containers</h1>
+    <p class="page-sub">All containers on this Docker host. Actions are logged.</p>
+  </div>
+  <button class="btn btn-ghost" hx-get="/containers/table" hx-target="#container-table" hx-swap="outerHTML">Refresh</button>
+</div>
+
+{{if not .Data.IsAdmin}}
+<div class="mb-4 rounded-lg border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-400">
+  You have read-only access. Starting and stopping is restricted to admins.
+</div>
+{{end}}
+
+{{template "container_table" .Data}}
+{{end}}

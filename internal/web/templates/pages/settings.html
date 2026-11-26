@@ -1,0 +1,110 @@
+{{define "content"}}
+<div class="mb-6">
+  <h1 class="page-title">Settings</h1>
+  <p class="page-sub">Account, users and instance status.</p>
+</div>
+
+{{template "error_box" .Data.Error}}
+
+<div class="grid gap-6 lg:grid-cols-2">
+  <section class="card">
+    <h2 class="card-title mb-1">Change password</h2>
+    <p class="mb-4 text-sm text-slate-500">Other sessions of this account will be signed out after the change.</p>
+    <form method="post" action="/settings/password" class="space-y-4">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <div>
+        <label class="label" for="current_password">Current password</label>
+        <input class="input" id="current_password" name="current_password" type="password" autocomplete="current-password" required>
+      </div>
+      <div>
+        <label class="label" for="new_password">New password</label>
+        <input class="input" id="new_password" name="new_password" type="password" autocomplete="new-password" required minlength="10">
+      </div>
+      <div>
+        <label class="label" for="confirm_password">Confirm new password</label>
+        <input class="input" id="confirm_password" name="confirm_password" type="password" autocomplete="new-password" required minlength="10">
+      </div>
+      <button class="btn btn-primary" type="submit">Save password</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2 class="card-title mb-4">Instance</h2>
+    <dl class="space-y-3 text-sm">
+      <div class="flex justify-between gap-4"><dt class="text-slate-500">Version</dt><dd class="text-slate-200">{{.Data.Version}}</dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-slate-500">App URL</dt><dd class="truncate text-slate-200">{{.Data.AppURL}}</dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-slate-500">Docker host</dt><dd class="truncate text-slate-200">{{.Data.DockerHost}}</dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-slate-500">Docker connection</dt>
+        <dd>{{if .Data.DockerOK}}<span class="badge badge-ok">connected</span>{{else}}<span class="badge badge-err">unreachable</span>{{end}}</dd>
+      </div>
+      <div class="flex justify-between gap-4"><dt class="text-slate-500">Default time zone</dt><dd class="text-slate-200">{{.Data.DefaultTZ}}</dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-slate-500">Stop timeout</dt><dd class="text-slate-200">{{.Data.StopTimeout}} s</dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-slate-500">Log retention</dt><dd class="text-slate-200">{{.Data.Retention}} entries</dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-slate-500">Session lifetime</dt><dd class="text-slate-200">{{.Data.SessionHours}} h</dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-slate-500">Rules / logs</dt><dd class="text-slate-200">{{.Data.RuleCount}} / {{.Data.LogCount}}</dd></div>
+    </dl>
+    {{if .Data.DockerErr}}<div class="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">{{.Data.DockerErr}}</div>{{end}}
+  </section>
+</div>
+
+{{if .IsAdmin}}
+<section class="card mt-6">
+  <h2 class="card-title mb-1">Users</h2>
+  <p class="mb-4 text-sm text-slate-500">Admins can control rules and containers. Viewers have read-only access.</p>
+
+  <div class="overflow-x-auto">
+    <table class="table">
+      <thead><tr><th>Username</th><th>Role</th><th>Created</th><th class="text-right">Action</th></tr></thead>
+      <tbody>
+        {{range .Data.Users}}
+        <tr>
+          <td class="font-medium text-slate-200">{{.Username}}{{if eq .ID $.Data.CurrentID}} <span class="text-xs text-slate-500">(you)</span>{{end}}</td>
+          <td><span class="badge badge-muted">{{.Role}}</span></td>
+          <td class="text-slate-500">{{fmtTime .CreatedAt $.Data.DefaultTZ}}</td>
+          <td class="text-right">
+            {{if ne .ID $.Data.CurrentID}}
+            <form method="post" action="/settings/users/{{.ID}}/delete" class="inline" data-confirm="Delete user {{.Username}}?">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+            </form>
+            {{end}}
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+
+  <form method="post" action="/settings/users" class="mt-5 grid gap-3 border-t border-slate-800 pt-5 sm:grid-cols-4">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <div>
+      <label class="label" for="new_username">Username</label>
+      <input class="input" id="new_username" name="username" required pattern="[a-zA-Z0-9][a-zA-Z0-9_.\-]{2,31}">
+    </div>
+    <div>
+      <label class="label" for="new_user_password">Password</label>
+      <input class="input" id="new_user_password" name="password" type="password" required minlength="10" autocomplete="new-password">
+    </div>
+    <div>
+      <label class="label" for="new_user_role">Role</label>
+      <select class="input" id="new_user_role" name="role">
+        <option value="VIEWER">Viewer</option>
+        <option value="ADMIN">Admin</option>
+      </select>
+    </div>
+    <div class="flex items-end">
+      <button class="btn btn-primary w-full" type="submit">Create</button>
+    </div>
+  </form>
+</section>
+
+<section class="card mt-6 border-rose-500/20">
+  <h2 class="card-title mb-1 text-rose-300">Maintenance</h2>
+  <p class="mb-4 text-sm text-slate-500">The log is deleted permanently. Rules and users are kept.</p>
+  <form method="post" action="/settings/logs/purge" data-confirm="Delete all log entries?">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <button class="btn btn-danger" type="submit">Purge logs ({{.Data.LogCount}} entries)</button>
+  </form>
+</section>
+{{end}}
+{{end}}

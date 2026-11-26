@@ -1,0 +1,41 @@
+{{define "content"}}
+<div class="mb-6 flex flex-wrap items-end justify-between gap-3">
+  <div>
+    <h1 class="page-title">Rules</h1>
+    <p class="page-sub">Schedules for start, stop and restart.</p>
+  </div>
+  {{if .IsAdmin}}<a class="btn btn-primary" href="/rules/new">New rule</a>{{end}}
+</div>
+
+{{template "error_box" .Data.LoadErr}}
+
+{{if .Data.Rows}}
+<div class="card overflow-hidden p-0">
+  <div class="overflow-x-auto">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Container</th>
+          <th>Action</th>
+          <th>Cron</th>
+          <th>Time zone</th>
+          <th>Next run</th>
+          <th>Status</th>
+          <th class="text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Data.Rows}}{{template "rule_row" .}}{{end}}
+      </tbody>
+    </table>
+  </div>
+</div>
+{{else}}
+<div class="card py-14 text-center">
+  <p class="text-slate-400">No rules yet.</p>
+  {{if .IsAdmin}}<a class="btn btn-primary mt-4" href="/rules/new">Create the first rule</a>{{end}}
+</div>
+{{end}}
+
+<p class="mt-3 text-xs text-slate-600">Cron format: minute hour day month weekday · Example: <code>0 8 * * 1-5</code> = weekdays at 08:00.</p>
+{{end}}

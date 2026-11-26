@@ -1,0 +1,67 @@
+{{define "content"}}
+<div class="mb-6">
+  <h1 class="page-title">Logs</h1>
+  <p class="page-sub">Every manual and scheduled container action.</p>
+</div>
+
+<form method="get" action="/logs" class="mb-5 card flex flex-wrap items-end gap-3">
+  <div class="min-w-[10rem]">
+    <label class="label" for="status">Status</label>
+    <select class="input" id="status" name="status">
+      <option value="">All</option>
+      <option value="SUCCESS" {{if eq .Data.Status "SUCCESS"}}selected{{end}}>Success</option>
+      <option value="FAILED" {{if eq .Data.Status "FAILED"}}selected{{end}}>Failed</option>
+    </select>
+  </div>
+  <div class="min-w-[10rem]">
+    <label class="label" for="trigger">Trigger</label>
+    <select class="input" id="trigger" name="trigger">
+      <option value="">All</option>
+      <option value="SCHEDULE" {{if eq .Data.Trigger "SCHEDULE"}}selected{{end}}>Schedule</option>
+      <option value="MANUAL" {{if eq .Data.Trigger "MANUAL"}}selected{{end}}>Manual</option>
+    </select>
+  </div>
+  {{if .Data.Containers}}
+  <div class="min-w-[12rem]">
+    <label class="label" for="container">Container</label>
+    <select class="input" id="container" name="container">
+      <option value="">All</option>
+      {{range .Data.Containers}}
+        <option value="{{.ID}}" {{if eq $.Data.Container .ID}}selected{{end}}>{{.Name}}</option>
+      {{end}}
+    </select>
+  </div>
+  {{end}}
+  <button class="btn btn-primary" type="submit">Filter</button>
+  <a class="btn btn-ghost" href="/logs">Reset</a>
+</form>
+
+<div class="card overflow-hidden p-0">
+  {{if .Data.Logs}}
+  <div class="overflow-x-auto">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Container</th>
+          <th>Action</th>
+          <th>Trigger</th>
+          <th>Status</th>
+          <th>Duration</th>
+          <th>Message</th>
+        </tr>
+      </thead>
+      <tbody>{{template "log_rows" .Data}}</tbody>
+    </table>
+  </div>
+  {{else}}
+  <p class="px-5 py-14 text-center text-sm text-slate-500">No log entries for this filter.</p>
+  {{end}}
+</div>
+
+{{if .Data.HasMore}}
+<div class="mt-4 text-center">
+  <a class="btn btn-ghost" href="{{.Data.NextURL}}">Older entries</a>
+</div>
+{{end}}
+{{end}}

@@ -1,0 +1,122 @@
+{{define "flash"}}
+{{if .Flash}}
+  <div class="mb-4 flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200" role="status">
+    <span aria-hidden="true">✓</span><span>{{.Flash}}</span>
+  </div>
+{{end}}
+{{end}}
+
+{{define "error_box"}}
+{{if .}}
+  <div class="mb-4 rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200" role="alert">{{.}}</div>
+{{end}}
+{{end}}
+
+{{define "field_error"}}
+{{if .}}<p class="mt-1 text-xs text-rose-400">{{.}}</p>{{end}}
+{{end}}
+
+{{define "container_table"}}
+<div id="container-table" hx-get="/containers/table" hx-trigger="every 10s" hx-swap="outerHTML" hx-target="this">
+  {{template "error_box" .DockerErr}}
+  {{if not .Containers}}
+    <div class="card text-center text-sm text-slate-400">
+      {{if .DockerErr}}No container data available.{{else}}No containers found.{{end}}
+    </div>
+  {{else}}
+  <div class="card overflow-hidden p-0">
+    <div class="overflow-x-auto">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Image</th>
+            <th>Status</th>
+            <th>State</th>
+            <th class="text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Containers}}
+          <tr>
+            <td class="font-medium text-slate-100">{{.Name}}</td>
+            <td class="max-w-[18rem] truncate text-slate-400" title="{{.Image}}">{{.Image}}</td>
+            <td class="text-slate-400">{{.Status}}</td>
+            <td><span class="badge {{stateClass .State}}"><span class="dot"></span>{{stateLabel .State}}</span></td>
+            <td>
+              <div class="flex justify-end gap-1">
+                {{if not $.IsAdmin}}
+                  <span class="text-xs text-slate-600">read-only</span>
+                {{else if .Controllable}}
+                  {{if .Running}}
+                    <button class="btn btn-sm btn-danger" hx-post="/containers/{{.ID}}/stop" hx-target="#container-table" hx-swap="outerHTML" hx-disabled-elt="this" title="Stop">■ Stop</button>
+                    <button class="btn btn-sm btn-ghost" hx-post="/containers/{{.ID}}/restart" hx-confirm="Restart container {{.Name}}?" hx-target="#container-table" hx-swap="outerHTML" hx-disabled-elt="this" title="Restart">↻</button>
+                  {{else}}
+                    <button class="btn btn-sm btn-primary" hx-post="/containers/{{.ID}}/start" hx-target="#container-table" hx-swap="outerHTML" hx-disabled-elt="this" title="Start">▶ Start</button>
+                  {{end}}
+                {{else}}
+                  <span class="badge badge-muted" title="Not managed by Docktimer">locked</span>
+                {{end}}
+              </div>
+            </td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <p class="mt-2 text-right text-[11px] text-slate-600">Refreshes automatically every 10 seconds</p>
+  {{end}}
+</div>
+{{end}}
+
+{{define "rule_row"}}
+<tr id="rule-{{.Rule.ID}}">
+  <td>
+    <div class="font-medium text-slate-100">{{.Rule.ContainerName}}</div>
+    <div class="text-xs text-slate-500">{{shortID .Rule.ContainerID}}</div>
+  </td>
+  <td><span class="badge badge-muted">{{actionLabel .Rule.Action}}</span></td>
+  <td><code class="rounded bg-slate-800/70 px-1.5 py-0.5 text-xs text-slate-300">{{.Rule.CronExpression}}</code></td>
+  <td class="text-xs text-slate-400">{{.Rule.Timezone}}</td>
+  <td class="text-xs text-slate-400">
+    {{if .OK}}{{fmtTime .At .Rule.Timezone}} <span class="text-slate-600">{{.Rule.Timezone}}</span>{{else}}<span class="text-slate-600">—</span>{{end}}
+  </td>
+  <td>
+    {{if .Rule.Enabled}}<span class="badge badge-ok">active</span>{{else}}<span class="badge badge-muted">inactive</span>{{end}}
+  </td>
+  <td>
+    <div class="flex justify-end gap-1">
+      {{if .CanWrite}}
+        {{if .Rule.Enabled}}
+          <button class="btn btn-sm btn-ghost" hx-post="/rules/{{.Rule.ID}}/toggle" hx-vals='{"enabled":"0"}' hx-target="closest tr" hx-swap="outerHTML" hx-disabled-elt="this">Disable</button>
+        {{else}}
+          <button class="btn btn-sm btn-ghost" hx-post="/rules/{{.Rule.ID}}/toggle" hx-vals='{"enabled":"1"}' hx-target="closest tr" hx-swap="outerHTML" hx-disabled-elt="this">Enable</button>
+        {{end}}
+        <a class="btn btn-sm btn-ghost" href="/rules/{{.Rule.ID}}/edit">Edit</a>
+        <button class="btn btn-sm btn-danger" hx-post="/rules/{{.Rule.ID}}/delete" hx-confirm="Delete the rule for {{.Rule.ContainerName}}?" hx-disabled-elt="this">Delete</button>
+      {{else}}
+        <span class="text-xs text-slate-600">read-only</span>
+      {{end}}
+    </div>
+  </td>
+</tr>
+{{end}}
+
+{{define "log_rows"}}
+{{range .Logs}}
+<tr>
+  <td class="whitespace-nowrap text-slate-400">{{fmtTime .CreatedAt $.TZ}}</td>
+  <td class="font-medium text-slate-200">{{.ContainerName}}</td>
+  <td><span class="badge badge-muted">{{actionLabel .Action}}</span></td>
+  <td class="text-slate-400">{{triggerLabel .Trigger}}</td>
+  <td><span class="badge {{statusClass .Status}}">{{.Status}}</span></td>
+  <td class="whitespace-nowrap text-slate-400">{{dur .DurationMS}}</td>
+  <td class="max-w-[22rem] truncate text-slate-500" title="{{.Message}}">{{if .Message}}{{.Message}}{{else}}—{{end}}</td>
+</tr>
+{{end}}
+{{end}}
+
+{{define "empty_row"}}
+<tr><td colspan="{{.}}" class="px-4 py-10 text-center text-sm text-slate-500">No entries.</td></tr>
+{{end}}
