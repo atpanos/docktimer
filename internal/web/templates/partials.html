@@ -73,8 +73,11 @@
 {{define "rule_row"}}
 <tr id="rule-{{.Rule.ID}}">
   <td>
-    <div class="font-medium text-slate-100">{{.Rule.ContainerName}}</div>
-    <div class="text-xs text-slate-500">{{shortID .Rule.ContainerID}}</div>
+    <div class="font-medium text-slate-100">
+      {{.Rule.TargetName}}
+      {{if eq .Rule.TargetType "STACK"}}<span class="badge badge-muted">stack</span>{{end}}
+    </div>
+    <div class="text-xs text-slate-500">{{if eq .Rule.TargetType "STACK"}}stack:{{.Rule.TargetRef}}{{else}}{{shortID .Rule.TargetRef}}{{end}}</div>
   </td>
   <td><span class="badge badge-muted">{{actionLabel .Rule.Action}}</span></td>
   <td><code class="rounded bg-slate-800/70 px-1.5 py-0.5 text-xs text-slate-300">{{.Rule.CronExpression}}</code></td>
@@ -94,7 +97,7 @@
           <button class="btn btn-sm btn-ghost" hx-post="/rules/{{.Rule.ID}}/toggle" hx-vals='{"enabled":"1"}' hx-target="closest tr" hx-swap="outerHTML" hx-disabled-elt="this">Enable</button>
         {{end}}
         <a class="btn btn-sm btn-ghost" href="/rules/{{.Rule.ID}}/edit">Edit</a>
-        <button class="btn btn-sm btn-danger" hx-post="/rules/{{.Rule.ID}}/delete" hx-confirm="Delete the rule for {{.Rule.ContainerName}}?" hx-disabled-elt="this">Delete</button>
+        <button class="btn btn-sm btn-danger" hx-post="/rules/{{.Rule.ID}}/delete" hx-confirm="Delete the rule for {{.Rule.TargetName}}?" hx-disabled-elt="this">Delete</button>
       {{else}}
         <span class="text-xs text-slate-600">read-only</span>
       {{end}}

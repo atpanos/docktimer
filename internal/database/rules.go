@@ -8,15 +8,15 @@ import (
 	"time"
 )
 
-const ruleColumns = `id, container_id, container_name, action, cron_expression, timezone,
+const ruleColumns = `id, target_type, target_ref, target_name, action, cron_expression, timezone,
 	enabled, created_by, created_at, updated_at`
 
 func scanRule(row interface{ Scan(...any) error }) (Rule, error) {
 	var r Rule
-	var action, created, updated string
+	var targetType, action, created, updated string
 	var enabled int
 	var createdBy sql.NullInt64
-	err := row.Scan(&r.ID, &r.ContainerID, &r.ContainerName, &action, &r.CronExpression,
+	err := row.Scan(&r.ID, &targetType, &r.TargetRef, &r.TargetName, &action, &r.CronExpression,
 		&r.Timezone, &enabled, &createdBy, &created, &updated)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -24,6 +24,7 @@ func scanRule(row interface{ Scan(...any) error }) (Rule, error) {
 		}
 		return Rule{}, err
 	}
+	r.TargetType = TargetType(targetType)
 	r.Action = Action(action)
 	r.Enabled = enabled == 1
 	r.CreatedBy = nullInt64(createdBy)
@@ -37,9 +38,9 @@ func (s *Store) CreateRule(ctx context.Context, r Rule) (Rule, error) {
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
 		`INSERT INTO container_rules
-		 (container_id, container_name, action, cron_expression, timezone, enabled, created_by, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.ContainerID, r.ContainerName, r.Action, r.CronExpression, r.Timezone,
+		 (target_type, target_ref, target_name, action, cron_expression, timezone, enabled, created_by, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.TargetType, r.TargetRef, r.TargetName, r.Action, r.CronExpression, r.Timezone,
 		boolInt(r.Enabled), argInt64(r.CreatedBy), formatTime(now), formatTime(now))
 	if err != nil {
 		return Rule{}, fmt.Errorf("create rule: %w", err)
@@ -58,10 +59,10 @@ func (s *Store) CreateRule(ctx context.Context, r Rule) (Rule, error) {
 func (s *Store) UpdateRule(ctx context.Context, r Rule) error {
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE container_rules
-		 SET container_id = ?, container_name = ?, action = ?, cron_expression = ?, timezone = ?,
+		 SET target_type = ?, target_ref = ?, target_name = ?, action = ?, cron_expression = ?, timezone = ?,
 		     enabled = ?, updated_at = ?
 		 WHERE id = ?`,
-		r.ContainerID, r.ContainerName, r.Action, r.CronExpression, r.Timezone,
+		r.TargetType, r.TargetRef, r.TargetName, r.Action, r.CronExpression, r.Timezone,
 		boolInt(r.Enabled), formatTime(time.Now()), r.ID)
 	if err != nil {
 		return fmt.Errorf("update rule: %w", err)
@@ -96,9 +97,9 @@ func (s *Store) RuleByID(ctx context.Context, id int64) (Rule, error) {
 	return r, nil
 }
 
-// ListRules returns all rules ordered by container and action.
+// ListRules returns all rules ordered by target and action.
 func (s *Store) ListRules(ctx context.Context) ([]Rule, error) {
-	return s.queryRules(ctx, `SELECT `+ruleColumns+` FROM container_rules ORDER BY container_name, action, id`)
+	return s.queryRules(ctx, `SELECT `+ruleColumns+` FROM container_rules ORDER BY target_name, action, id`)
 }
 
 // ListEnabledRules returns all active rules.

@@ -35,8 +35,9 @@ func (s *Service) Create(ctx context.Context, in Input, createdBy *int64) (datab
 		return database.Rule{}, err
 	}
 	return s.store.CreateRule(ctx, database.Rule{
-		ContainerID:    in.ContainerID,
-		ContainerName:  in.ContainerName,
+		TargetType:     in.TargetType,
+		TargetRef:      in.TargetRef,
+		TargetName:     in.TargetName,
 		Action:         in.Action,
 		CronExpression: in.Cron,
 		Timezone:       in.Timezone,
@@ -54,8 +55,9 @@ func (s *Service) Update(ctx context.Context, id int64, in Input) (database.Rule
 	if err != nil {
 		return database.Rule{}, err
 	}
-	existing.ContainerID = in.ContainerID
-	existing.ContainerName = in.ContainerName
+	existing.TargetType = in.TargetType
+	existing.TargetRef = in.TargetRef
+	existing.TargetName = in.TargetName
 	existing.Action = in.Action
 	existing.CronExpression = in.Cron
 	existing.Timezone = in.Timezone

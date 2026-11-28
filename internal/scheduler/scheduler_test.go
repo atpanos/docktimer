@@ -5,26 +5,39 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/atpanos/docktimer/internal/database"
+	"github.com/atpanos/docktimer/internal/docker"
 )
 
 type fakeRunner struct {
-	mu    sync.Mutex
-	calls int
-	err   error
-	last  database.Action
+	mu       sync.Mutex
+	calls    int
+	err      error
+	last     database.Action
+	lastType database.TargetType
+	lastRef  string
+	results  []docker.Result
 }
 
-func (f *fakeRunner) Execute(ctx context.Context, action database.Action, id string) error {
+func (f *fakeRunner) ExecuteTarget(ctx context.Context, action database.Action, targetType database.TargetType, ref string) ([]docker.Result, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
 	f.last = action
-	return f.err
+	f.lastType = targetType
+	f.lastRef = ref
+	if f.results != nil {
+		return append([]docker.Result(nil), f.results...), f.err
+	}
+	if f.err != nil {
+		return nil, f.err
+	}
+	return []docker.Result{{ContainerID: ref, ContainerName: "/web"}}, nil
 }
 
 type fakeSource struct{ rules []database.Rule }
@@ -54,9 +67,15 @@ func (f *fakeSink) last() (database.ExecutionLog, bool) {
 	return f.entries[len(f.entries)-1], true
 }
 
+func (f *fakeSink) all() []database.ExecutionLog {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]database.ExecutionLog(nil), f.entries...)
+}
+
 func testRule() database.Rule {
 	return database.Rule{
-		ID: 7, ContainerID: "abc", ContainerName: "/web",
+		ID: 7, TargetType: database.TargetContainer, TargetRef: "abc", TargetName: "/web",
 		Action: database.ActionStop, CronExpression: "0 8 * * *",
 		Timezone: "Europe/Berlin", Enabled: true,
 	}
@@ -95,6 +114,63 @@ func TestJobRecordsFailure(t *testing.T) {
 	entry, _ := sink.last()
 	if entry.Status != database.StatusFailed || entry.Message != "daemon down" {
 		t.Fatalf("unexpected log entry: %+v", entry)
+	}
+}
+
+func TestJobRecordsOneRowPerStackMember(t *testing.T) {
+	runner := &fakeRunner{results: []docker.Result{
+		{ContainerID: "db", ContainerName: "/media-db"},
+		{ContainerID: "web", ContainerName: "/media-web", Message: "already running"},
+		{ContainerID: "bad", ContainerName: "/media-bad", Err: errors.New("boom")},
+	}}
+	sink := &fakeSink{}
+	s := newScheduler(runner, &fakeSource{}, sink)
+
+	rule := testRule()
+	rule.TargetType = database.TargetStack
+	rule.TargetRef = "media"
+	rule.TargetName = "media"
+	s.job(rule, 0)
+
+	if runner.lastType != database.TargetStack || runner.lastRef != "media" {
+		t.Errorf("runner target = %s/%s", runner.lastType, runner.lastRef)
+	}
+	entries := sink.all()
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 log rows, got %d: %+v", len(entries), entries)
+	}
+	wantMessages := []string{"stack media (1/3)", "stack media (2/3): already running", "stack media (3/3): boom"}
+	wantStatus := []database.Status{database.StatusSuccess, database.StatusSuccess, database.StatusFailed}
+	for i, entry := range entries {
+		if entry.Message != wantMessages[i] || entry.Status != wantStatus[i] {
+			t.Errorf("row %d = %q/%s, want %q/%s", i, entry.Message, entry.Status, wantMessages[i], wantStatus[i])
+		}
+		if entry.RuleID == nil || *entry.RuleID != rule.ID {
+			t.Errorf("row %d lost rule id: %+v", i, entry)
+		}
+	}
+}
+
+func TestJobRecordsUnresolvedStack(t *testing.T) {
+	runner := &fakeRunner{err: docker.ErrNotFound}
+	sink := &fakeSink{}
+	s := newScheduler(runner, &fakeSource{}, sink)
+
+	rule := testRule()
+	rule.TargetType = database.TargetStack
+	rule.TargetRef = "gone"
+	rule.TargetName = "gone"
+	s.job(rule, 0)
+
+	entry, ok := sink.last()
+	if !ok || entry.Status != database.StatusFailed {
+		t.Fatalf("unexpected log entry: %+v", entry)
+	}
+	if entry.ContainerID != "stack:gone" || entry.ContainerName != "gone" {
+		t.Errorf("unexpected target fields: %+v", entry)
+	}
+	if !strings.Contains(entry.Message, "not found") {
+		t.Errorf("message = %q", entry.Message)
 	}
 }
 

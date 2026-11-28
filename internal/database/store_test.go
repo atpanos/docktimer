@@ -2,10 +2,13 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"io/fs"
 	"path/filepath"
 	"sync"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/atpanos/docktimer/migrations"
@@ -27,6 +30,46 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	if err := Migrate(ctx, store.DB(), migrations.FS); err != nil {
 		t.Fatalf("second migrate run failed: %v", err)
+	}
+}
+
+func TestStackTargetMigrationKeepsExistingRules(t *testing.T) {
+	ctx := context.Background()
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.Close() })
+
+	initial, err := fs.ReadFile(migrations.FS, "0001_init.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldSchema := fstest.MapFS{"0001_init.sql": &fstest.MapFile{Data: initial}}
+	if err := Migrate(ctx, db, oldSchema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO container_rules
+		 (container_id, container_name, action, cron_expression, timezone, enabled, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		"abc123", "/web", "STOP", "0 8 * * *", "Europe/Berlin", 1,
+		"2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Migrate(ctx, db, migrations.FS); err != nil {
+		t.Fatalf("apply stack migration: %v", err)
+	}
+	var targetType, ref, name string
+	if err := db.QueryRowContext(ctx,
+		`SELECT target_type, target_ref, target_name FROM container_rules WHERE id = 1`).
+		Scan(&targetType, &ref, &name); err != nil {
+		t.Fatal(err)
+	}
+	if targetType != "CONTAINER" || ref != "abc123" || name != "/web" {
+		t.Fatalf("existing rule not preserved: %s %s %s", targetType, ref, name)
 	}
 }
 
@@ -207,7 +250,7 @@ func TestRuleCRUD(t *testing.T) {
 	createdBy := u.ID
 
 	r, err := store.CreateRule(ctx, Rule{
-		ContainerID: "abc123", ContainerName: "/web", Action: ActionStart,
+		TargetType: TargetContainer, TargetRef: "abc123", TargetName: "/web", Action: ActionStart,
 		CronExpression: "0 8 * * *", Timezone: "Europe/Berlin", Enabled: true, CreatedBy: &createdBy,
 	})
 	if err != nil {
@@ -337,7 +380,7 @@ func TestLogKeepsRuleIDNullAfterRuleDelete(t *testing.T) {
 	store := newStore(t)
 	ctx := context.Background()
 	r, _ := store.CreateRule(ctx, Rule{
-		ContainerID: "abc", ContainerName: "/web", Action: ActionStart,
+		TargetType: TargetContainer, TargetRef: "abc", TargetName: "/web", Action: ActionStart,
 		CronExpression: "0 8 * * *", Timezone: "UTC", Enabled: true,
 	})
 	ruleID := r.ID

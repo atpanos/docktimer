@@ -1,7 +1,7 @@
 # Docktimer
 
 Docktimer is a small, self-hosted web application that starts and stops Docker
-containers on a schedule. It runs as a single Go binary with a SQLite database and
+containers and Compose stacks on a schedule. It runs as a single Go binary with a SQLite database and
 is designed for home servers where a full orchestration stack would be overkill.
 
 **One process. One database file. No Node.js, no React, no CDN.**
@@ -19,10 +19,10 @@ is designed for home servers where a full orchestration stack would be overkill.
 | Area | Function |
 |------|----------|
 | **Auth** | First-run setup wizard, sign in/out, `ADMIN`/`VIEWER` roles, password change, viewer management, session cookies with idle and absolute timeouts |
-| **Containers** | List all containers (name, image, status, state), manual start/stop/restart, HTMX auto-refresh every 10 s, locked containers stay visible but cannot be controlled |
-| **Rules** | Container + action + 5-field cron + IANA time zone + active/inactive, CRUD, toggle without reload, next-run display, cron preview |
+| **Containers** | List all containers (name, image, status, state), manual start/stop/restart, HTMX auto-refresh every 10 s, Compose projects grouped as stacks in the rule picker, locked containers stay visible but cannot be controlled |
+| **Rules** | Container or Compose stack + action + 5-field cron + IANA time zone + active/inactive, CRUD, toggle without reload, next-run display, cron preview |
 | **Scheduler** | Runs in-process, never overlaps a rule with itself, logs every run, survives Docker outages |
-| **Logs** | Time, container, action, trigger, status, duration, error message; filters, cursor pagination, retention |
+| **Logs** | Time, container, action, trigger, status, duration, error message; one row per stack member with `stack <project> (i/n)` context; filters, cursor pagination, retention |
 | **Dashboard** | Running/stopped counts, active rules, upcoming actions, recent actions, prominent error box |
 | **Security** | HttpOnly/SameSite cookies, CSRF on every POST, login rate limit (5/15 min), CSP, no shell execution, container allow/deny list, self-protection |
 | **Operations** | `/healthz`, `/readyz`, multi-stage Dockerfile, Compose with resource limits, socket-proxy variant, backup guide |
@@ -195,8 +195,9 @@ The default Compose setup uses a named volume and does not need this step.
 ### Further hardening
 
 - `CONTAINER_ALLOWLIST`/`CONTAINER_DENYLIST`: Docktimer only controls approved
-  containers. Its own container (`HOSTNAME`) and `docker-socket-proxy` are always
-  locked.
+  containers. Patterns match container names/ID prefixes and Compose project
+  names; stack actions exclude locked members. Its own container (`HOSTNAME`)
+  and `docker-socket-proxy` are always locked.
 - Never expose the app to the internet without protection. If you need external
   access, use a reverse proxy with TLS, set `APP_URL=https://…` and
   `COOKIE_SECURE=true` (or `auto`).
@@ -221,8 +222,8 @@ The default Compose setup uses a named volume and does not need this step.
 | `SESSION_IDLE_MINUTES` | `60` | – | Idle timeout |
 | `COOKIE_SECURE` | `auto` | – | `auto`/`true`/`false` |
 | `TRUSTED_PROXIES` | empty | – | Comma-separated IPs/CIDRs for `X-Forwarded-*` |
-| `CONTAINER_ALLOWLIST` | empty | – | Only control these names/ID prefixes (empty = all) |
-| `CONTAINER_DENYLIST` | `docktimer,docker-socket-proxy` | – | Never control these |
+| `CONTAINER_ALLOWLIST` | empty | – | Only control these container names/ID prefixes or Compose project names (empty = all) |
+| `CONTAINER_DENYLIST` | `docktimer,docker-socket-proxy` | – | Never control these container names/ID prefixes or Compose project names |
 | `LOG_LEVEL` | `info` | – | `debug`/`info`/`warn`/`error` |
 | `DEV_MODE` | `0` | – | `1` = development (text logs, template reload, weak secret allowed) |
 | `DOCKER_GID` | `999` | – | Docker socket group (both socket overrides) |
@@ -360,13 +361,18 @@ GitHub Actions and Docker images: Trivy finds the issues, Dependabot fixes them.
 
 - **One Docker host**, one process. No horizontal scaling (SQLite + in-memory cron).
 - **5-field cron only** (minute granularity), no seconds, no `@` shorthands.
-- **No Compose support**: projects are neither read nor validated or applied.
+- **Compose files are not managed**: Compose projects can be used as rule
+  targets, but Docktimer does not read, validate, diff or apply Compose files.
+- **No dependency order**: stack start/stop uses Compose service name order
+  (stop in reverse). Docker does not expose the dependency graph.
 - **No image/network/volume management**, no pull/build/exec.
 - **No notifications** (email/webhook/ntfy) and no password reset.
 - **No audit of read access**; only actions are logged.
 - **Missed runs are not caught up** after downtime.
-- Container names are stored as a snapshot; a manually renamed container is only
-  refreshed the next time the rule is edited.
+- Container and stack names are stored as a snapshot; a manually renamed target
+  is only refreshed the next time the rule is edited. Stack membership is
+  resolved from Docker labels at run time, so added/removed members are picked
+  up automatically.
 - `VIEWER` sees the full dashboard and logs, but no user management.
 - The socket proxy protects the Docker API, not against application misconfiguration.
 
@@ -374,7 +380,7 @@ GitHub Actions and Docker images: Trivy finds the issues, Dependabot fixes them.
 
 ## Roadmap (not in the MVP)
 
-1. Read, validate and apply Compose projects (with diff preview)
+1. Compose file management (read, validate, diff, apply) with preview
 2. Git history for Compose files
 3. Notifications (ntfy, webhook, email) on failures
 4. Multiple Docker hosts with host selection per rule

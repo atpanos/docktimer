@@ -52,6 +52,18 @@ func (a Action) Valid() bool {
 	return a == ActionStart || a == ActionStop || a == ActionRestart
 }
 
+// TargetType describes what a rule targets: a single container or a Compose
+// project (stack).
+type TargetType string
+
+const (
+	TargetContainer TargetType = "CONTAINER"
+	TargetStack     TargetType = "STACK"
+)
+
+// Valid reports whether t is a supported target type.
+func (t TargetType) Valid() bool { return t == TargetContainer || t == TargetStack }
+
 // Trigger describes what caused an execution.
 type Trigger string
 
@@ -68,11 +80,12 @@ const (
 	StatusFailed  Status = "FAILED"
 )
 
-// Rule is a scheduled container action.
+// Rule is a scheduled action for a single container or a Compose stack.
 type Rule struct {
 	ID             int64
-	ContainerID    string
-	ContainerName  string
+	TargetType     TargetType
+	TargetRef      string // container ID or Compose project name
+	TargetName     string // display name: container name or project name
 	Action         Action
 	CronExpression string
 	Timezone       string

@@ -13,12 +13,13 @@ import (
 
 // Input is a validated rule form.
 type Input struct {
-	ContainerID   string
-	ContainerName string
-	Action        database.Action
-	Cron          string
-	Timezone      string
-	Enabled       bool
+	TargetType database.TargetType
+	TargetRef  string
+	TargetName string
+	Action     database.Action
+	Cron       string
+	Timezone   string
+	Enabled    bool
 }
 
 // ValidationError carries per-field German messages for inline form errors.
@@ -38,22 +39,26 @@ func (e *ValidationError) FieldsOrNil() map[string]string {
 	return e.Fields
 }
 
-var containerRefRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`)
+var targetRefRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`)
 
 // Validate checks all rule fields and returns a ValidationError on failure.
 func Validate(in *Input) error {
 	fields := map[string]string{}
 
-	in.ContainerID = strings.TrimSpace(in.ContainerID)
-	in.ContainerName = strings.TrimSpace(in.ContainerName)
+	in.TargetType = database.TargetType(strings.ToUpper(strings.TrimSpace(string(in.TargetType))))
+	in.TargetRef = strings.TrimSpace(in.TargetRef)
+	in.TargetName = strings.TrimSpace(in.TargetName)
 	in.Cron = strings.TrimSpace(in.Cron)
 	in.Timezone = strings.TrimSpace(in.Timezone)
 
-	if !containerRefRe.MatchString(in.ContainerID) {
-		fields["container_id"] = "Please select a container."
+	if !in.TargetType.Valid() {
+		fields["target_type"] = "Invalid target type."
 	}
-	if in.ContainerName == "" {
-		fields["container_name"] = "The container name is missing."
+	if !targetRefRe.MatchString(in.TargetRef) {
+		fields["target"] = "Please select a container or stack."
+	}
+	if in.TargetName == "" {
+		fields["target_name"] = "The target name is missing."
 	}
 	if !in.Action.Valid() {
 		fields["action"] = "Invalid action."

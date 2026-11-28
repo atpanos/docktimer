@@ -10,12 +10,13 @@ import (
 
 func validInput() Input {
 	return Input{
-		ContainerID:   "0123456789ab",
-		ContainerName: "/web",
-		Action:        database.ActionStart,
-		Cron:          "0 8 * * 1-5",
-		Timezone:      "Europe/Berlin",
-		Enabled:       true,
+		TargetType: database.TargetContainer,
+		TargetRef:  "0123456789ab",
+		TargetName: "/web",
+		Action:     database.ActionStart,
+		Cron:       "0 8 * * 1-5",
+		Timezone:   "Europe/Berlin",
+		Enabled:    true,
 	}
 }
 
@@ -28,16 +29,32 @@ func TestValidateAcceptsValidRule(t *testing.T) {
 
 func TestValidateNormalizesInput(t *testing.T) {
 	in := validInput()
-	in.ContainerID = "  " + in.ContainerID + "  "
-	in.ContainerName = "  /web  "
+	in.TargetType = database.TargetType("  stack  ")
+	in.TargetRef = "  media  "
+	in.TargetName = "  media  "
 	in.Cron = "  0 8 * * 1-5  "
 	in.Timezone = "  Europe/Berlin  "
 	if err := Validate(&in); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if in.ContainerID != "0123456789ab" || in.ContainerName != "/web" ||
+	if in.TargetType != database.TargetStack || in.TargetRef != "media" || in.TargetName != "media" ||
 		in.Cron != "0 8 * * 1-5" || in.Timezone != "Europe/Berlin" {
 		t.Errorf("input was not normalized: %+v", in)
+	}
+}
+
+func TestValidateRejectsBadTarget(t *testing.T) {
+	in := validInput()
+	in.TargetType = "SERVICE"
+	in.TargetRef = "bad ref!"
+	in.TargetName = ""
+	err := Validate(&in)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	ve := err.(*ValidationError)
+	if ve.Fields["target_type"] == "" || ve.Fields["target"] == "" || ve.Fields["target_name"] == "" {
+		t.Fatalf("missing fields: %#v", ve.Fields)
 	}
 }
 
