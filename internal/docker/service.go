@@ -293,7 +293,8 @@ func (s *Service) Execute(ctx context.Context, action database.Action, id string
 // log every member. For stacks, members that already have the desired state
 // are reported with a Message instead of being an error. Non-controllable
 // members (allow/deny list, self-protection) are reported as skipped and never
-// touched. If no member may be controlled, ErrNotAllowed is returned.
+// touched; if no member may be controlled, every member is reported with
+// ErrNotAllowed.
 func (s *Service) ExecuteTarget(ctx context.Context, action database.Action, targetType database.TargetType, ref string) ([]Result, error) {
 	if !action.Valid() {
 		return nil, fmt.Errorf("unsupported action %q", action)
@@ -352,15 +353,24 @@ func (s *Service) executeStack(ctx context.Context, action database.Action, proj
 			actionable++
 		}
 	}
-	if actionable == 0 {
-		return nil, ErrNotAllowed
-	}
 	// GroupStacks sorts members by service name. Start/restart keep that order;
 	// stop runs in reverse so dependents are stopped first.
 	if action == database.ActionStop {
 		for i, j := 0, len(members)-1; i < j; i, j = i+1, j-1 {
 			members[i], members[j] = members[j], members[i]
 		}
+	}
+	if actionable == 0 {
+		// Keep one failed row per member instead of collapsing the whole stack
+		// into one opaque error.
+		results := make([]Result, 0, len(members))
+		for _, c := range members {
+			results = append(results, Result{
+				ContainerID: c.ID, ContainerName: c.Name,
+				Err: ErrNotAllowed,
+			})
+		}
+		return results, nil
 	}
 
 	results := make([]Result, 0, len(members))

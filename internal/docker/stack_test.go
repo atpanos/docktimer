@@ -295,7 +295,11 @@ func TestExecuteTargetStackErrors(t *testing.T) {
 		composeContainer("self", "docktimer", "media", "docktimer", "running"),
 	}
 	svc = NewService(api, 30*time.Second, nil, []string{"docktimer"}, "", testLogger())
-	if _, err := svc.ExecuteTarget(context.Background(), database.ActionStart, database.TargetStack, "media"); !errors.Is(err, ErrNotAllowed) {
-		t.Errorf("locked stack: %v", err)
+	results, err := svc.ExecuteTarget(context.Background(), database.ActionStart, database.TargetStack, "media")
+	if err != nil {
+		t.Fatalf("fully locked stack must not be an unresolved-target error: %v", err)
+	}
+	if len(results) != 1 || !errors.Is(results[0].Err, ErrNotAllowed) {
+		t.Errorf("locked stack members not reported: %+v", results)
 	}
 }
