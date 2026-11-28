@@ -117,6 +117,21 @@ func TestJobRecordsFailure(t *testing.T) {
 	}
 }
 
+func TestJobRecordsContainerMemberFailureMessage(t *testing.T) {
+	runner := &fakeRunner{results: []docker.Result{
+		{ContainerID: "abc", ContainerName: "/web", Err: errors.New("boom")},
+	}}
+	sink := &fakeSink{}
+	s := newScheduler(runner, &fakeSource{}, sink)
+
+	s.job(testRule(), 0)
+
+	entry, ok := sink.last()
+	if !ok || entry.Status != database.StatusFailed || entry.Message != "boom" {
+		t.Fatalf("unexpected log entry: %+v", entry)
+	}
+}
+
 func TestJobRecordsOneRowPerStackMember(t *testing.T) {
 	runner := &fakeRunner{results: []docker.Result{
 		{ContainerID: "db", ContainerName: "/media-db"},

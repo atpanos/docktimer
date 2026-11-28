@@ -43,18 +43,37 @@ func TestValidateNormalizesInput(t *testing.T) {
 	}
 }
 
+func TestValidateAcceptsLongStackName(t *testing.T) {
+	in := validInput()
+	in.TargetType = database.TargetStack
+	in.TargetRef = strings.Repeat("a", 129)
+	in.TargetName = in.TargetRef
+	if err := Validate(&in); err != nil {
+		t.Fatalf("long Compose project name rejected: %v", err)
+	}
+}
+
 func TestValidateRejectsBadTarget(t *testing.T) {
 	in := validInput()
 	in.TargetType = "SERVICE"
-	in.TargetRef = "bad ref!"
 	in.TargetName = ""
 	err := Validate(&in)
 	if err == nil {
 		t.Fatal("expected validation error")
 	}
 	ve := err.(*ValidationError)
-	if ve.Fields["target_type"] == "" || ve.Fields["target"] == "" || ve.Fields["target_name"] == "" {
+	if ve.Fields["target_type"] == "" || ve.Fields["target_name"] == "" {
 		t.Fatalf("missing fields: %#v", ve.Fields)
+	}
+
+	in = validInput()
+	in.TargetRef = "bad ref!"
+	err = Validate(&in)
+	if err == nil {
+		t.Fatal("expected target error")
+	}
+	if ve := err.(*ValidationError); ve.Fields["target"] == "" {
+		t.Fatalf("missing target field: %#v", ve.Fields)
 	}
 }
 

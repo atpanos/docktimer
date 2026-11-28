@@ -39,7 +39,11 @@ func (e *ValidationError) FieldsOrNil() map[string]string {
 	return e.Fields
 }
 
-var targetRefRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`)
+var (
+	containerTargetRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`)
+	// Compose project names are not limited to the container reference length.
+	stackTargetRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,254}$`)
+)
 
 // Validate checks all rule fields and returns a ValidationError on failure.
 func Validate(in *Input) error {
@@ -53,9 +57,14 @@ func Validate(in *Input) error {
 
 	if !in.TargetType.Valid() {
 		fields["target_type"] = "Invalid target type."
-	}
-	if !targetRefRe.MatchString(in.TargetRef) {
-		fields["target"] = "Please select a container or stack."
+	} else {
+		re := containerTargetRe
+		if in.TargetType == database.TargetStack {
+			re = stackTargetRe
+		}
+		if !re.MatchString(in.TargetRef) {
+			fields["target"] = "Please select a container or stack."
+		}
 	}
 	if in.TargetName == "" {
 		fields["target_name"] = "The target name is missing."

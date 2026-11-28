@@ -32,6 +32,27 @@ type Container struct {
 // Running reports whether the container is currently running.
 func (c Container) Running() bool { return c.State == "running" }
 
+// Active reports whether the container has live processes or is transitioning.
+// A paused container is still running; a restarting one is on its way back up.
+func (c Container) Active() bool {
+	switch c.State {
+	case "running", "paused", "restarting":
+		return true
+	}
+	return false
+}
+
+// Stopped reports whether the container is already in a state where STOP is a
+// no-op. Paused and restarting containers are deliberately not included: they
+// still have processes or a pending restart that STOP must address.
+func (c Container) Stopped() bool {
+	switch c.State {
+	case "exited", "created", "dead":
+		return true
+	}
+	return false
+}
+
 // Stack is a Compose project with its containers.
 type Stack struct {
 	Project    string
@@ -380,12 +401,12 @@ func (s *Service) executeOne(ctx context.Context, action database.Action, id str
 	if skipSatisfied {
 		switch action {
 		case database.ActionStart:
-			if ct.Running() {
+			if ct.Active() {
 				res.Message = "already running"
 				return res, nil
 			}
 		case database.ActionStop:
-			if !ct.Running() {
+			if ct.Stopped() {
 				res.Message = "already stopped"
 				return res, nil
 			}

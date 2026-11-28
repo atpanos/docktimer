@@ -334,8 +334,13 @@ func (s *Scheduler) job(r database.Rule, gen uint64) {
 			default:
 				entry.Message = prefix
 			}
-		} else if res.Message != "" {
-			entry.Message = res.Message
+		} else {
+			switch {
+			case res.Err != nil:
+				entry.Message = res.Err.Error()
+			case res.Message != "":
+				entry.Message = res.Message
+			}
 		}
 		s.record(entry)
 	}

@@ -212,6 +212,53 @@ func TestExecuteTargetStackBestEffort(t *testing.T) {
 	}
 }
 
+func TestExecuteTargetStackStopDoesNotSkipPausedOrRestarting(t *testing.T) {
+	api := &fakeAPI{containers: []Container{
+		composeContainer("paused", "paused", "media", "paused", "paused"),
+		composeContainer("restarting", "restarting", "media", "restarting", "restarting"),
+		composeContainer("exited", "exited", "media", "exited", "exited"),
+	}}
+	svc := newTestService(api)
+
+	results, err := svc.ExecuteTarget(context.Background(), database.ActionStop, database.TargetStack, "media")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"restarting", "paused"}
+	if len(api.stopped) != len(want) || api.stopped[0] != want[0] || api.stopped[1] != want[1] {
+		t.Fatalf("stopped = %v, want %v", api.stopped, want)
+	}
+	if len(results) != 3 {
+		t.Fatalf("results = %d", len(results))
+	}
+	last := results[2]
+	if last.ContainerID != "exited" || last.Message != "already stopped" {
+		t.Errorf("exited member not skipped: %+v", last)
+	}
+}
+
+func TestExecuteTargetStackStartDoesNotStartPaused(t *testing.T) {
+	api := &fakeAPI{containers: []Container{
+		composeContainer("paused", "paused", "media", "paused", "paused"),
+		composeContainer("exited", "exited", "media", "exited", "exited"),
+	}}
+	svc := newTestService(api)
+
+	results, err := svc.ExecuteTarget(context.Background(), database.ActionStart, database.TargetStack, "media")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(api.started) != 1 || api.started[0] != "exited" {
+		t.Fatalf("started = %v, want [exited]", api.started)
+	}
+	if len(results) != 2 || results[0].ContainerID != "exited" {
+		t.Fatalf("unexpected results: %+v", results)
+	}
+	if results[1].ContainerID != "paused" || results[1].Message != "already running" {
+		t.Errorf("paused member not skipped: %+v", results[1])
+	}
+}
+
 func TestExecuteTargetStackReportsLockedMembersAsSkipped(t *testing.T) {
 	api := &fakeAPI{containers: []Container{
 		composeContainer("web", "web", "media", "web", "running"),
