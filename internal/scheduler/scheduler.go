@@ -12,13 +12,15 @@ import (
 	"time"
 
 	"github.com/atpanos/docktimer/internal/database"
+	"github.com/atpanos/docktimer/internal/docker"
 	"github.com/atpanos/docktimer/internal/rules"
 	"github.com/robfig/cron/v3"
 )
 
-// Runner executes a container action. Implemented by docker.Service.
+// Runner executes an action against a container or a Compose stack. Implemented
+// by docker.Service.
 type Runner interface {
-	Execute(ctx context.Context, action database.Action, id string) error
+	ExecuteTarget(ctx context.Context, action database.Action, targetType database.TargetType, ref string) ([]docker.Result, error)
 }
 
 // RuleSource loads active rules. Implemented by database.Store.
@@ -248,16 +250,22 @@ func (s *Scheduler) advanceNextLocked(r database.Rule, gen uint64) {
 }
 
 func (s *Scheduler) job(r database.Rule, gen uint64) {
+	targetType := r.TargetType
+	if targetType == "" {
+		targetType = database.TargetContainer
+	}
+	targetID, targetName := ruleTarget(r)
+
 	s.mu.Lock()
 	if _, busy := s.running[r.ID]; busy {
 		// The dispatch still counts: move the displayed next run forward even
 		// though this execution is skipped because the previous one is active.
 		s.advanceNextLocked(r, gen)
 		s.mu.Unlock()
-		_, _ = s.logs.Record(s.rootCtx, database.ExecutionLog{
+		s.record(database.ExecutionLog{
 			RuleID:        &r.ID,
-			ContainerID:   r.ContainerID,
-			ContainerName: r.ContainerName,
+			ContainerID:   targetID,
+			ContainerName: targetName,
 			Action:        r.Action,
 			Trigger:       database.TriggerSchedule,
 			Status:        database.StatusFailed,
@@ -283,33 +291,82 @@ func (s *Scheduler) job(r database.Rule, gen uint64) {
 	ctx, cancel := context.WithTimeout(s.rootCtx, 10*time.Minute)
 	defer cancel()
 
-	start := time.Now()
-	err := s.runner.Execute(ctx, r.Action, r.ContainerID)
-	elapsed := time.Since(start).Milliseconds()
+	results, err := s.runner.ExecuteTarget(ctx, r.Action, targetType, r.TargetRef)
+	if len(results) == 0 {
+		entry := database.ExecutionLog{
+			RuleID:        &r.ID,
+			ContainerID:   targetID,
+			ContainerName: targetName,
+			Action:        r.Action,
+			Trigger:       database.TriggerSchedule,
+			Status:        database.StatusSuccess,
+		}
+		if err != nil {
+			entry.Status = database.StatusFailed
+			entry.Message = err.Error()
+		} else {
+			entry.Message = "No matching containers."
+		}
+		s.record(entry)
+		return
+	}
 
-	entry := database.ExecutionLog{
-		RuleID:        &r.ID,
-		ContainerID:   r.ContainerID,
-		ContainerName: r.ContainerName,
-		Action:        r.Action,
-		Trigger:       database.TriggerSchedule,
-		Status:        database.StatusSuccess,
-		DurationMS:    elapsed,
+	for i, res := range results {
+		entry := database.ExecutionLog{
+			RuleID:        &r.ID,
+			ContainerID:   res.ContainerID,
+			ContainerName: res.ContainerName,
+			Action:        r.Action,
+			Trigger:       database.TriggerSchedule,
+			Status:        database.StatusSuccess,
+			DurationMS:    res.Duration.Milliseconds(),
+		}
+		if res.Err != nil {
+			entry.Status = database.StatusFailed
+		}
+		if targetType == database.TargetStack {
+			prefix := fmt.Sprintf("stack %s (%d/%d)", r.TargetRef, i+1, len(results))
+			switch {
+			case res.Err != nil:
+				entry.Message = prefix + ": " + res.Err.Error()
+			case res.Message != "":
+				entry.Message = prefix + ": " + res.Message
+			default:
+				entry.Message = prefix
+			}
+		} else {
+			switch {
+			case res.Err != nil:
+				entry.Message = res.Err.Error()
+			case res.Message != "":
+				entry.Message = res.Message
+			}
+		}
+		s.record(entry)
 	}
-	if err != nil {
-		entry.Status = database.StatusFailed
-		entry.Message = err.Error()
+}
+
+// ruleTarget returns the log fields used when no member container is available
+// (skipped run or an unresolved stack).
+func ruleTarget(r database.Rule) (id, name string) {
+	if r.TargetType == database.TargetStack {
+		return "stack:" + r.TargetRef, r.TargetName
 	}
-	// Record with a fresh deadline: the action context may already be expired
-	// after a timeout or shutdown, which would drop the outcome from history.
-	recordCtx, cancelRecord := context.WithTimeout(context.WithoutCancel(s.rootCtx), 5*time.Second)
-	defer cancelRecord()
-	if _, recErr := s.logs.Record(recordCtx, entry); recErr != nil {
-		// The rule may have been deleted while the job was running. Keep the
-		// execution history by dropping the dangling rule reference.
+	return r.TargetRef, r.TargetName
+}
+
+// record stores one log entry with a fresh deadline. The action context may
+// already be expired after a timeout or shutdown, which must not drop the
+// outcome from history. If the rule was deleted while the job was running, the
+// dangling rule reference is dropped and the entry is retried.
+func (s *Scheduler) record(entry database.ExecutionLog) {
+	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(s.rootCtx), 5*time.Second)
+	defer cancel()
+	ruleID := entry.RuleID
+	if _, err := s.logs.Record(recordCtx, entry); err != nil {
 		entry.RuleID = nil
 		if _, retryErr := s.logs.Record(recordCtx, entry); retryErr != nil {
-			s.log.Error("cannot record scheduled run", "rule_id", r.ID, "error", retryErr)
+			s.log.Error("cannot record scheduled run", "rule_id", ruleID, "error", retryErr)
 		}
 	}
 }

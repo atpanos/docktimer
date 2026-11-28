@@ -147,11 +147,11 @@ func dockerErrorText(err error) string {
 	case errors.Is(err, docker.ErrUnavailable):
 		return "Docker daemon is not reachable. Check the socket or the socket proxy."
 	case errors.Is(err, docker.ErrNotFound):
-		return "Container was not found."
+		return "Container or stack was not found."
 	case errors.Is(err, docker.ErrConflict):
-		return "The container is in a state that does not allow this action."
+		return "The target is in a state that does not allow this action."
 	case errors.Is(err, docker.ErrNotAllowed):
-		return "This container is not managed by Docktimer."
+		return "This container or stack is not managed by Docktimer."
 	case errors.Is(err, docker.ErrAmbiguous):
 		return "Multiple containers match this reference. Please select one."
 	case errors.Is(err, docker.ErrTimeout):

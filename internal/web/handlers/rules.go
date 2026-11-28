@@ -28,18 +28,20 @@ type rulesPageData struct {
 }
 
 type ruleFormData struct {
-	IsNew           bool
-	ID              int64
-	Input           rules.Input
-	Errors          map[string]string
-	ContainerHidden bool
-	Containers      []docker.Container
-	DockerErr       string
-	TZOptions       []string
-	Preview         []time.Time
-	PreviewErr      string
-	TZ              string
-	ActionValues    []database.Action
+	IsNew        bool
+	ID           int64
+	Input        rules.Input
+	Errors       map[string]string
+	TargetHidden bool
+	TargetValue  string
+	Containers   []docker.Container
+	Stacks       []docker.Stack
+	DockerErr    string
+	TZOptions    []string
+	Preview      []time.Time
+	PreviewErr   string
+	TZ           string
+	ActionValues []database.Action
 }
 
 // RulesPage lists all rules with their next run.
@@ -60,7 +62,7 @@ func (h *Handler) RulesPage(c *gin.Context) {
 		})
 	}
 	sort.SliceStable(data.Rows, func(i, j int) bool {
-		return data.Rows[i].Rule.ContainerName < data.Rows[j].Rule.ContainerName
+		return data.Rows[i].Rule.TargetName < data.Rows[j].Rule.TargetName
 	})
 	h.page(c, http.StatusOK, "rules", "Rules", "rules", data)
 }
@@ -87,13 +89,10 @@ func (h *Handler) CreateRule(c *gin.Context) {
 	h.ruleMu.Lock()
 	defer h.ruleMu.Unlock()
 	in := parseRuleInput(c)
-	ct, err := h.resolveContainer(c, in.ContainerID)
-	if err != nil {
-		h.renderRuleError(c, 0, in, map[string]string{"container_id": dockerErrorText(err)}, true)
+	if err := h.resolveTarget(c, &in); err != nil {
+		h.renderRuleError(c, 0, in, map[string]string{"target": dockerErrorText(err)}, true)
 		return
 	}
-	in.ContainerID = ct.ID
-	in.ContainerName = ct.Name
 
 	user, _ := middleware.CurrentUser(c)
 	var createdBy *int64
@@ -137,12 +136,13 @@ func (h *Handler) EditRulePage(c *gin.Context) {
 		return
 	}
 	in := rules.Input{
-		ContainerID:   rule.ContainerID,
-		ContainerName: rule.ContainerName,
-		Action:        rule.Action,
-		Cron:          rule.CronExpression,
-		Timezone:      rule.Timezone,
-		Enabled:       rule.Enabled,
+		TargetType: rule.TargetType,
+		TargetRef:  rule.TargetRef,
+		TargetName: rule.TargetName,
+		Action:     rule.Action,
+		Cron:       rule.CronExpression,
+		Timezone:   rule.Timezone,
+		Enabled:    rule.Enabled,
 	}
 	h.renderRuleForm(c, http.StatusOK, ruleFormData{
 		IsNew:        false,
@@ -177,19 +177,16 @@ func (h *Handler) UpdateRule(c *gin.Context) {
 		h.errorPage(c, http.StatusInternalServerError, "Could not load the rule.")
 		return
 	}
-	if strings.TrimSpace(in.ContainerID) == existing.ContainerID {
-		// The container is unchanged. Allow saving other fields even when the
-		// container is currently locked or no longer visible.
-		in.ContainerID = existing.ContainerID
-		in.ContainerName = existing.ContainerName
+	if in.TargetType == existing.TargetType && strings.TrimSpace(in.TargetRef) == existing.TargetRef {
+		// The target is unchanged. Allow saving other fields even when the
+		// container or stack is currently locked or no longer visible.
+		in.TargetRef = existing.TargetRef
+		in.TargetName = existing.TargetName
 	} else {
-		ct, err := h.resolveContainer(c, in.ContainerID)
-		if err != nil {
-			h.renderRuleError(c, id, in, map[string]string{"container_id": dockerErrorText(err)}, false)
+		if err := h.resolveTarget(c, &in); err != nil {
+			h.renderRuleError(c, id, in, map[string]string{"target": dockerErrorText(err)}, false)
 			return
 		}
-		in.ContainerID = ct.ID
-		in.ContainerName = ct.Name
 	}
 
 	rule, err := h.deps.Rules.Update(c.Request.Context(), id, in)
@@ -285,15 +282,32 @@ func (h *Handler) renderRuleForm(c *gin.Context, status int, data ruleFormData) 
 		data.DockerErr = dockerErrorText(err)
 	}
 	data.Containers = containers
-	if data.Input.ContainerID != "" {
+	data.Stacks = docker.GroupStacks(containers)
+	data.TargetValue = targetValue(data.Input)
+	if data.Input.TargetRef != "" {
 		found := false
-		for _, ct := range containers {
-			if ct.ID == data.Input.ContainerID {
-				found = true
-				break
+		if data.Input.TargetType == database.TargetStack {
+			for _, st := range data.Stacks {
+				if st.Project == data.Input.TargetRef {
+					found = true
+					if data.Input.TargetName == "" {
+						data.Input.TargetName = st.Project
+					}
+					break
+				}
+			}
+		} else {
+			for _, ct := range containers {
+				if ct.ID == data.Input.TargetRef {
+					found = true
+					if data.Input.TargetName == "" {
+						data.Input.TargetName = ct.Name
+					}
+					break
+				}
 			}
 		}
-		data.ContainerHidden = !found
+		data.TargetHidden = !found
 	}
 	if len(data.TZOptions) == 0 {
 		data.TZOptions = timezoneOptions(h.deps.Cfg.DefaultTimezone)
@@ -333,12 +347,59 @@ func (h *Handler) renderRuleError(c *gin.Context, id int64, in rules.Input, fiel
 }
 
 func parseRuleInput(c *gin.Context) rules.Input {
+	targetType, targetRef := parseTargetValue(c.PostForm("target"))
 	return rules.Input{
-		ContainerID: c.PostForm("container_id"),
-		Action:      database.Action(strings.ToUpper(strings.TrimSpace(c.PostForm("action")))),
-		Cron:        c.PostForm("cron_expression"),
-		Timezone:    c.PostForm("timezone"),
-		Enabled:     c.PostForm("enabled") != "",
+		TargetType: targetType,
+		TargetRef:  targetRef,
+		Action:     database.Action(strings.ToUpper(strings.TrimSpace(c.PostForm("action")))),
+		Cron:       c.PostForm("cron_expression"),
+		Timezone:   c.PostForm("timezone"),
+		Enabled:    c.PostForm("enabled") != "",
+	}
+}
+
+// parseTargetValue decodes the composite picker value. Container IDs cannot
+// contain a colon, so the "stack:" prefix is unambiguous.
+func parseTargetValue(v string) (database.TargetType, string) {
+	v = strings.TrimSpace(v)
+	if strings.HasPrefix(v, "stack:") {
+		return database.TargetStack, strings.TrimSpace(strings.TrimPrefix(v, "stack:"))
+	}
+	return database.TargetContainer, v
+}
+
+func targetValue(in rules.Input) string {
+	if in.TargetType == database.TargetStack && in.TargetRef != "" {
+		return "stack:" + in.TargetRef
+	}
+	return in.TargetRef
+}
+
+// resolveTarget maps a submitted target reference to exactly one container or
+// Compose stack and stores the canonical reference and display name.
+func (h *Handler) resolveTarget(c *gin.Context, in *rules.Input) error {
+	switch in.TargetType {
+	case database.TargetStack:
+		stack, err := h.deps.Docker.FindStack(c.Request.Context(), in.TargetRef)
+		if err != nil {
+			return err
+		}
+		if !stack.Actionable() {
+			return docker.ErrNotAllowed
+		}
+		in.TargetRef = stack.Project
+		in.TargetName = stack.Project
+		return nil
+	case database.TargetContainer:
+		ct, err := h.resolveContainer(c, in.TargetRef)
+		if err != nil {
+			return err
+		}
+		in.TargetRef = ct.ID
+		in.TargetName = ct.Name
+		return nil
+	default:
+		return docker.ErrNotFound
 	}
 }
 

@@ -87,10 +87,20 @@ func newHarness(t *testing.T) *harness {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 
-	api := &fakeAPI{containers: []docker.Container{{
-		ID: testContainerID, Name: "/web", Image: "nginx:alpine",
-		State: "running", Status: "Up 2 hours",
-	}}}
+	api := &fakeAPI{containers: []docker.Container{
+		{
+			ID: testContainerID, Name: "/web", Image: "nginx:alpine",
+			State: "running", Status: "Up 2 hours",
+		},
+		{
+			ID: "media-db-id", Name: "/media-db-1", Image: "postgres:17",
+			State: "running", Status: "Up 2 hours", Project: "media", Service: "db",
+		},
+		{
+			ID: "media-cache-id", Name: "/media-cache-1", Image: "redis:7",
+			State: "running", Status: "Up 2 hours", Project: "media", Service: "cache",
+		},
+	}}
 	dockerSvc := docker.NewService(api, cfg.StopTimeout, nil, nil, "", log)
 	csrf := auth.NewCSRF(cfg.SessionSecret)
 	authSvc := auth.NewService(store, csrf, auth.NewLimiter(5, 15*time.Minute), cfg.SessionTTL, cfg.SessionIdleTTL)
@@ -250,7 +260,7 @@ func TestSetupLoginRuleToggleAndLog(t *testing.T) {
 	// Create a rule through the real HTTP handler.
 	status, _, loc = post(t, c, base+"/rules", url.Values{
 		"csrf_token":      {adminToken},
-		"container_id":    {testContainerID},
+		"target":          {testContainerID},
 		"action":          {"STOP"},
 		"cron_expression": {"0 8 * * 1-5"},
 		"timezone":        {"Europe/Berlin"},
@@ -280,7 +290,7 @@ func TestSetupLoginRuleToggleAndLog(t *testing.T) {
 	h.api.containers = nil
 	status, _, loc = post(t, c, base+"/rules/1", url.Values{
 		"csrf_token":      {adminToken},
-		"container_id":    {testContainerID},
+		"target":          {testContainerID},
 		"action":          {"STOP"},
 		"cron_expression": {"30 9 * * 1-5"},
 		"timezone":        {"Europe/Berlin"},
@@ -295,8 +305,8 @@ func TestSetupLoginRuleToggleAndLog(t *testing.T) {
 		t.Fatalf("load updated rule: %v", err)
 	}
 	if updatedRule.CronExpression != "30 9 * * 1-5" ||
-		updatedRule.ContainerID != testContainerID ||
-		updatedRule.ContainerName != "/web" {
+		updatedRule.TargetRef != testContainerID ||
+		updatedRule.TargetName != "/web" {
 		t.Fatalf("unexpected rule after update: %+v", updatedRule)
 	}
 
@@ -306,7 +316,7 @@ func TestSetupLoginRuleToggleAndLog(t *testing.T) {
 		t.Fatalf("new rule form = %d", status)
 	}
 	status, body, _ = post(t, c, base+"/rules", url.Values{
-		"csrf_token": {adminToken}, "container_id": {testContainerID},
+		"csrf_token": {adminToken}, "target": {testContainerID},
 		"action": {"STOP"}, "cron_expression": {"99 8 * * *"}, "timezone": {"Europe/Berlin"},
 	}, "", false)
 	if status != http.StatusUnprocessableEntity || !strings.Contains(body, "Invalid cron expression") {
@@ -360,7 +370,7 @@ func TestSetupLoginRuleToggleAndLog(t *testing.T) {
 
 	// Requests without CSRF are rejected.
 	status, _, _ = post(t, c, base+"/rules", url.Values{
-		"container_id": {testContainerID}, "action": {"STOP"},
+		"target": {testContainerID}, "action": {"STOP"},
 		"cron_expression": {"0 8 * * *"}, "timezone": {"UTC"},
 	}, "", false)
 	if status != http.StatusForbidden {
@@ -393,6 +403,78 @@ func TestSetupLoginRuleToggleAndLog(t *testing.T) {
 	}
 	if len(h.api.calls) != 1 {
 		t.Errorf("viewer action reached Docker: %v", h.api.calls)
+	}
+}
+
+func TestStackRuleThroughHTTP(t *testing.T) {
+	h := newHarness(t)
+	c := newClient(t)
+	base := h.server.URL
+
+	// Create the admin account.
+	_, body := get(t, c, base+"/setup")
+	setupToken := csrfFromForm(t, body)
+	status, _, loc := post(t, c, base+"/setup", url.Values{
+		"csrf_token": {setupToken},
+		"username":   {"admin"},
+		"password":   {"admin-password-123"},
+		"confirm":    {"admin-password-123"},
+	}, "", false)
+	if status != http.StatusSeeOther || !strings.HasPrefix(loc, "/?flash=setup_done") {
+		t.Fatalf("POST /setup = %d loc=%q", status, loc)
+	}
+	_, body = get(t, c, base+"/")
+	adminToken := csrfFromMeta(t, body)
+
+	// The picker lists the Compose stack with its aggregate state.
+	status, body = get(t, c, base+"/rules/new")
+	if status != http.StatusOK {
+		t.Fatalf("new rule form = %d", status)
+	}
+	if !strings.Contains(body, `value="stack:media"`) || !strings.Contains(body, "2/2 running") {
+		t.Fatalf("stack option missing from picker: %s", body)
+	}
+
+	// Create a rule that targets the whole stack.
+	status, _, loc = post(t, c, base+"/rules", url.Values{
+		"csrf_token":      {adminToken},
+		"target":          {"stack:media"},
+		"action":          {"STOP"},
+		"cron_expression": {"0 1 * * *"},
+		"timezone":        {"Europe/Berlin"},
+		"enabled":         {"1"},
+	}, "", false)
+	if status != http.StatusSeeOther || !strings.Contains(loc, "rule_created") {
+		t.Fatalf("POST /rules = %d loc=%q", status, loc)
+	}
+	rulesList, err := h.store.ListRules(context.Background())
+	if err != nil || len(rulesList) != 1 {
+		t.Fatalf("rules in db: %v %d", err, len(rulesList))
+	}
+	rule := rulesList[0]
+	if rule.TargetType != database.TargetStack || rule.TargetRef != "media" || rule.TargetName != "media" {
+		t.Fatalf("unexpected stack rule: %+v", rule)
+	}
+
+	status, body = get(t, c, base+"/rules")
+	if status != http.StatusOK || !strings.Contains(body, "stack:media") {
+		t.Fatalf("rules page does not render the stack target: %d", status)
+	}
+	status, body = get(t, c, base+"/rules/1/edit")
+	if status != http.StatusOK || !strings.Contains(body, `value="stack:media"`) {
+		t.Fatalf("edit form does not preselect the stack: %d", status)
+	}
+
+	// A stack that no longer exists is rejected with a clear form error.
+	status, body, _ = post(t, c, base+"/rules", url.Values{
+		"csrf_token":      {adminToken},
+		"target":          {"stack:gone"},
+		"action":          {"STOP"},
+		"cron_expression": {"0 1 * * *"},
+		"timezone":        {"Europe/Berlin"},
+	}, "", false)
+	if status != http.StatusUnprocessableEntity || !strings.Contains(body, "was not found") {
+		t.Fatalf("unknown stack = %d body=%q", status, body)
 	}
 }
 

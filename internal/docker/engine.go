@@ -4,11 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
+)
+
+const (
+	composeProjectLabel = "com.docker.compose.project"
+	composeServiceLabel = "com.docker.compose.service"
+	composeOneOffLabel  = "com.docker.compose.oneoff"
 )
 
 // engine implements API on top of the official Docker client.
@@ -76,6 +83,9 @@ func fromSummary(c container.Summary) Container {
 		State:   string(c.State),
 		Status:  c.Status,
 		Created: timeFromUnix(c.Created),
+		Project: c.Labels[composeProjectLabel],
+		Service: c.Labels[composeServiceLabel],
+		OneOff:  strings.EqualFold(c.Labels[composeOneOffLabel], "true"),
 	}
 }
 

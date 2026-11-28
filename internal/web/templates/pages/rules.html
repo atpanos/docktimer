@@ -2,7 +2,7 @@
 <div class="mb-6 flex flex-wrap items-end justify-between gap-3">
   <div>
     <h1 class="page-title">Rules</h1>
-    <p class="page-sub">Schedules for start, stop and restart.</p>
+    <p class="page-sub">Schedules for containers and Compose stacks.</p>
   </div>
   {{if .IsAdmin}}<a class="btn btn-primary" href="/rules/new">New rule</a>{{end}}
 </div>
@@ -15,7 +15,7 @@
     <table class="table">
       <thead>
         <tr>
-          <th>Container</th>
+          <th>Target</th>
           <th>Action</th>
           <th>Cron</th>
           <th>Time zone</th>

@@ -56,7 +56,7 @@
     {{if .Data.Next}}
     <div class="overflow-x-auto">
       <table class="table">
-        <thead><tr><th>Time</th><th>Container</th><th>Action</th></tr></thead>
+        <thead><tr><th>Time</th><th>Target</th><th>Action</th></tr></thead>
         <tbody>
           {{range .Data.Next}}
           <tr>
@@ -64,7 +64,10 @@
               {{fmtTime .At .Rule.Timezone}}
               <span class="block text-[11px] text-slate-600">{{.Rule.Timezone}}</span>
             </td>
-            <td class="font-medium text-slate-200">{{.Rule.ContainerName}}</td>
+            <td class="font-medium text-slate-200">
+              {{.Rule.TargetName}}
+              {{if eq .Rule.TargetType "STACK"}}<span class="badge badge-muted">stack</span>{{end}}
+            </td>
             <td><span class="badge badge-muted">{{actionLabel .Rule.Action}}</span></td>
           </tr>
           {{end}}
